@@ -492,9 +492,9 @@ void F4EEBodyGenUpdate::Run()
 				// We only need to detach armor, and armor that's even eligible for morphing
 				if(m_doDetach)
 				{
-					ActorEquipData * equipData[2];
-					equipData[0] = actor->equipData;
-					equipData[1] = actor == (*g_player) ? (*g_player)->playerEquipData : nullptr;
+					BipedAnim * equipData[2];
+					equipData[0] = actor->biped.get();
+					equipData[1] = actor == (*g_player) ? (*g_player)->playerEquipData.get() : nullptr;
 
 					for(UInt32 s = 0; s < (actor == (*g_player) ? 2 : 1); s++)
 					{
@@ -502,7 +502,7 @@ void F4EEBodyGenUpdate::Run()
 						{
 							for(UInt32 i = 0; i < 32; ++i)
 							{
-								NiPointer<NiAVObject> slotNode(equipData[s]->slots[i].node);
+								NiPointer<NiAVObject> slotNode(equipData[s]->object[i].partClone);
 								if(slotNode && g_bodyMorphInterface.IsNodeMorphable(slotNode))
 								{
 									NiPointer<NiNode> parent(slotNode->m_parent);
@@ -527,7 +527,7 @@ void F4EEBodyGenUpdate::Run()
 
 				auto middleProcess = actor->middleProcess;
 				if(middleProcess) 
-					CALL_MEMBER_FN(middleProcess, UpdateEquipment)(actor, 0x11);
+					middleProcess->DoUpdate3dModel(actor, Actor::AIProcess::RESET_MODEL | Actor::AIProcess::RESET_SCALE);
 #ifdef _DEBUG_MOPRHING
 				else
 					_MESSAGE("%s - Skipping Update for %s (%08X) no middle process", __FUNCTION__, CALL_MEMBER_FN(actor, GetReferenceName)(), actor->formID);
@@ -578,12 +578,12 @@ bool BodyMorphInterface::ApplyMorphsToShape(Actor * actor, const MorphableShapeP
 		UInt32 vertexSize = geometry->GetVertexSize();
 		UInt32 blockSize = geometry->numVertices * vertexSize;
 
-		BSGeometryData * baseData = geometry->geometryData;
-		BSGeometryData * geomData = nullptr;
+		BSGraphics::TriShape * baseData = static_cast<BSGraphics::TriShape*>(geometry->pRendererData);
+		BSGraphics::TriShape * geomData = nullptr;
 		if(!baseData)
 			return false;
 
-		auto vertexData = baseData->vertexData;
+		auto vertexData = baseData->pVB;
 		if(!vertexData)
 			return false;
 
@@ -597,11 +597,11 @@ bool BodyMorphInterface::ApplyMorphsToShape(Actor * actor, const MorphableShapeP
 		UInt8 * newBlock = nullptr;
 
 		// Create the cloned copy
-		geomData = CALL_MEMBER_FN(g_renderManager, CreateBSGeometryData)(&blockSize, vertexData->vertexBlock, geometry->vertexDesc, baseData->triangleData);
+		geomData = g_renderManager->CreateTriShape(&blockSize, vertexData->pData, geometry->vertexDesc, baseData->pIB);
 		if(!geomData)
 			return false;
 
-		newBlock = geomData->vertexData->vertexBlock;
+		newBlock = (UInt8 *)geomData->pVB->pData;
 
 		MorphApplicator morpher(geometry, newBlock, newBlock, [&](std::vector<Morpher::Vector3> & verts)
 		{
@@ -627,11 +627,11 @@ bool BodyMorphInterface::ApplyMorphsToShape(Actor * actor, const MorphableShapeP
 		});
 
 		if(geomData) {
-			geometry->geometryData = geomData;
+			geometry->pRendererData = geomData;
 
 			// We don't want to delete the original copy, but we'll release because we are forking (Don't know what the other ref is for?)
-			if(baseData->refCount > 2)
-				InterlockedDecrement(&baseData->refCount);
+			if(baseData->uiRefCount > 2)
+				InterlockedDecrement(&baseData->uiRefCount);
 		}
 	}
 

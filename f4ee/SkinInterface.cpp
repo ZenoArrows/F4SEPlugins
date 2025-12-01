@@ -116,12 +116,15 @@ void F4EESkinUpdate::Run()
 	if(doSkinUpdate && !doHeadUpdate) {
 		auto middleProcess = actor->middleProcess;
 		if(middleProcess) 
-			CALL_MEMBER_FN(middleProcess, UpdateEquipment)(actor, 0x11);
+			middleProcess->DoUpdate3dModel(actor, Actor::AIProcess::RESET_MODEL | Actor::AIProcess::RESET_SCALE);
 	}
 
 	// Regenerate the face
-	if(doHeadUpdate)
-		CALL_MEMBER_FN(actor, QueueUpdate)(false, 0, true, 0);
+	if(doHeadUpdate) {
+		auto middleProcess = actor->middleProcess;
+		if(middleProcess) 
+			middleProcess->Update3DModel(actor, true);
+	}
 }
 
 // Should already be guaranteed to be TXST or ARMO if it's non-zero

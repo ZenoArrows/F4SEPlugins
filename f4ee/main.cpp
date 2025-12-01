@@ -344,7 +344,7 @@ void F4EESerialization_Load(const F4SESerializationInterface * intfc)
 extern "C"
 {
 
-bool F4SEPlugin_Query(const F4SEInterface * f4se, PluginInfo * info)
+bool F4SEPlugin_Preload(const F4SEInterface * f4se)
 {
 	SInt32	logLevel = IDebugLog::kLevel_DebugMessage;
 	if (F4EEGetConfigValue("Debug", "iLogLevel", &logLevel))
@@ -356,11 +356,6 @@ bool F4SEPlugin_Query(const F4SEInterface * f4se, PluginInfo * info)
 
 	g_f4seVersion = f4se->f4seVersion;
 
-	// populate info structure
-	info->infoVersion =	PluginInfo::kInfoVersion;
-	info->name =		"F4EE";
-	info->version =		1;
-
 	// store plugin handle so we can identify ourselves later
 	g_pluginHandle = f4se->GetPluginHandle();
 
@@ -369,9 +364,9 @@ bool F4SEPlugin_Query(const F4SEInterface * f4se, PluginInfo * info)
 		_FATALERROR("loaded in editor, marking as incompatible");
 		return false;
 	}
-	else if(f4se->runtimeVersion != RUNTIME_VERSION_1_10_163)
+	else if(f4se->runtimeVersion != RUNTIME_VERSION_1_11_169)
 	{
-		UInt32 runtimeVersion = RUNTIME_VERSION_1_10_163;
+		UInt32 runtimeVersion = RUNTIME_VERSION_1_11_169;
 		char buf[512];
 		sprintf_s(buf, "LooksMenu Version Error:\nexpected game version %d.%d.%d.%d\nyour game version is %d.%d.%d.%d\nsome features may not work correctly.", 
 			GET_EXE_VERSION_MAJOR(runtimeVersion), 
@@ -475,20 +470,20 @@ bool ScaleformCallback(GFxMovieView * view, GFxValue * value)
 }
 
 typedef UInt32 (* _InstallArmorAddon)(void * unk1, UInt32 unk2, TESForm * form);
-RelocAddr <_InstallArmorAddon> InstallArmorAddon_Original(0x001C4150);
-RelocAddr <uintptr_t> InstallArmorAddon_Start(0x001BECB0 + 0xC27);
+RelocAddr <_InstallArmorAddon> InstallArmorAddon_Original(0x0035C2C0); // "Weapon %s (%08X)"
+RelocAddr <uintptr_t> InstallArmorAddon_Start(0x00356E40 + 0xB4C); // "%s (%08X)[%d]/%s (%08X)"
 
 typedef void (* _ApplyMaterialProperties)(NiAVObject * object);
-RelocAddr <_ApplyMaterialProperties> ApplyMaterialProperties(0x028201D0); // 42D562E443C0313BACEF58FC1A4508489CED355F+33A
-RelocAddr <uintptr_t> HairColorModify_Start(0x0068BFC0 + 0x24A);
+RelocAddr <_ApplyMaterialProperties> ApplyMaterialProperties(0x021BC6A0); // "LoadScreen01:0"
+RelocAddr <uintptr_t> HairColorModify_Start(0x006EBD20 + 0x262);
 
-RelocAddr <uintptr_t> GetHairTexturePath_Start(0x00689BB0 + 0xDED);
+RelocAddr <uintptr_t> GetHairTexturePath_Start(0x006E9360 + 0x10D4); // "[FaceGen]"
 
-RelocPtr<UInt32> g_faceGenTextureWidth(0x0384FF30); // F5F0D2A6AFBE88D06472E751C88521770B465B79+148
-RelocPtr<UInt32> g_faceGenTextureHeight(0x0384FF34);
+RelocPtr<UInt32> g_faceGenTextureWidth(0x02F37900); // "FaceCustomization"
+RelocPtr<UInt32> g_faceGenTextureHeight(0x02F37904);
 
-typedef void (* _InitializeSharedTarget)(BSRenderTargetManager * targetManager, UInt32 type, BSRenderTargetManager::SharedTargetInfo * targetInfo, UInt8 unk1);
-RelocAddr <_InitializeSharedTarget> InitializeSharedTarget(0x01D30E90);
+typedef void (* _InitializeSharedTarget)(BSGraphics::RenderTargetManager * targetManager, UInt32 type, BSGraphics::RenderTargetManager::RenderTargetProperties * targetInfo, UInt8 unk1);
+RelocAddr <_InitializeSharedTarget> InitializeSharedTarget(0x01834410); // "Render target"
 _InitializeSharedTarget InitializeSharedTarget_Original = nullptr;
 
 void ApplyMaterialProperties_Hook(NiAVObject * node, BGSColorForm * colorForm, BSLightingShaderMaterialBase * shaderMaterial)
@@ -535,15 +530,15 @@ UInt32 InstallArmorAddon_Hook(void * unk1, UInt32 unk2, TESForm * form, NiAVObje
 }
 */
 
-void InitializeSharedTarget_Hook(BSRenderTargetManager * targetManager, UInt32 type, BSRenderTargetManager::SharedTargetInfo * targetInfo, UInt8 unk1)
+void InitializeSharedTarget_Hook(BSGraphics::RenderTargetManager * targetManager, UInt32 type, BSGraphics::RenderTargetManager::RenderTargetProperties * targetInfo, UInt8 unk1)
 {
 	switch(type)
 	{
 	case 16:
 	case 17:
 	case 18:
-		targetInfo->width = g_tintMaskWidth;
-		targetInfo->height = g_tintMaskHeight;
+		targetInfo->uiWidth = g_tintMaskWidth;
+		targetInfo->uiHeight = g_tintMaskHeight;
 		break;
 	}
 	InitializeSharedTarget_Original(targetManager, type, targetInfo, unk1);	
@@ -669,9 +664,9 @@ bool F4SEPlugin_Load(const F4SEInterface * skse)
 				Xbyak::Label funcLabel;
 				Xbyak::Label retnLabel;
 
-				mov(r8, r13);
+				mov(r8, r12);
 				mov(rdx, rax);
-				mov(rcx, r12);
+				mov(rcx, r15);
 				call(ptr [rip + funcLabel]);
 				jmp(ptr [rip + retnLabel]);
 
@@ -679,7 +674,7 @@ bool F4SEPlugin_Load(const F4SEInterface * skse)
 				dq(funcAddr);
 
 				L(retnLabel);
-				dq(HairColorModify_Start.GetUIntPtr() + 0x14);
+				dq(HairColorModify_Start.GetUIntPtr() + 0x15);
 			}
 		};
 
@@ -731,14 +726,14 @@ bool F4SEPlugin_Load(const F4SEInterface * skse)
 			{
 				Xbyak::Label retnLabel;
 
-				push(rsi);
 				push(rdi);
 				push(r14);
+				push(r15);
 
 				jmp(ptr [rip + retnLabel]);
 
 				L(retnLabel);
-				dq(InitializeSharedTarget.GetUIntPtr() + 5);
+				dq(InitializeSharedTarget.GetUIntPtr() + 6);
 			}
 		};
 
@@ -753,5 +748,20 @@ bool F4SEPlugin_Load(const F4SEInterface * skse)
 	
 	return true;
 }
+
+__declspec(dllexport) F4SEPluginVersionData F4SEPlugin_Version =
+{
+	F4SEPluginVersionData::kVersion,
+
+	1,
+	"F4EE",
+	"Expired6978",
+
+	0,	// not version independent
+	0,	// not version independent (extended field)
+	{ RUNTIME_VERSION_1_11_169, 0 },	// compatible with 1.11.169
+
+	0,	// works with any version of the script extender. you probably do not need to put anything here
+};
 
 };

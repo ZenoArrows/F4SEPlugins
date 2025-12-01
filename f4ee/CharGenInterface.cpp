@@ -157,10 +157,7 @@ DWORD CharGenInterface::SavePreset(const std::string & filePath)
 		root["Morphs"]["Regions"] = morphRegionData;
 	}
 
-	CharacterCreation::MorphIntensity * intensity = g_morphIntensityMap->Find(&npc);
-	if(intensity) {
-		root["Morphs"]["Intensity"] = intensity->morphIntensity;
-	}
+	root["Morphs"]["Intensity"] = npc->GetFacialBoneMorphIntensity();
 
 	Json::Value tintData;
 
@@ -455,21 +452,7 @@ DWORD CharGenInterface::LoadPreset(const std::string & filePath)
 		{
 			bool hasIntensity = root["Morphs"].isMember("Intensity");
 			float intensity = hasIntensity ? root["Morphs"]["Intensity"].asFloat() : 1.0f;
-
-			if(CharacterCreation::MorphIntensity * found = g_morphIntensityMap->Find(&npc))
-			{
-				if(hasIntensity)
-					found->morphIntensity = root["Morphs"]["Intensity"].asFloat();
-				else
-					g_morphIntensityMap->Remove(&npc);
-			}
-			else if(hasIntensity)
-			{
-				CharacterCreation::MorphIntensity mi;
-				mi.npc = npc;
-				mi.morphIntensity = intensity;
-				g_morphIntensityMap->Add(&mi);
-			}
+			npc->SetFacialBoneMorphIntensity(intensity);
 		}
 		catch(const std::exception& e)
 		{

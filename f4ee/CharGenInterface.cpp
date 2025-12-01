@@ -450,9 +450,8 @@ DWORD CharGenInterface::LoadPreset(const std::string & filePath)
 	{
 		try
 		{
-			bool hasIntensity = root["Morphs"].isMember("Intensity");
-			float intensity = hasIntensity ? root["Morphs"]["Intensity"].asFloat() : 1.0f;
-			npc->SetFacialBoneMorphIntensity(intensity);
+			if (root["Morphs"].isMember("Intensity"))
+				npc->SetFacialBoneMorphIntensity(root["Morphs"]["Intensity"].asFloat());
 		}
 		catch(const std::exception& e)
 		{

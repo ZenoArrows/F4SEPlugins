@@ -382,6 +382,10 @@ bool F4SEPlugin_Preload(const F4SEInterface * f4se)
 		return false;
 	}
 
+#if 0
+	_WARNING("You are using an unofficial version of LooksMenu, please switch to the official version as soon as it is updated.");
+#endif
+
 	// get the papyrus interface and query its version
 	g_scaleform = (F4SEScaleformInterface *)f4se->QueryInterface(kInterface_Scaleform);
 	if (!g_scaleform)

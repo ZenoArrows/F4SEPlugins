@@ -634,7 +634,7 @@ bool F4SEPlugin_Load(const F4SEInterface * skse)
 
 				call(ptr [rip + originLabel]);
 
-				mov(r8d, ptr[rbp+0x1C0-0x208]); // Stack var to current index of equip item loop
+				mov(r8d, ptr[rbp+0x1C0-0x210]); // Stack var to current index of equip item loop
 				mov(rdx, r12);					// ObjectNode
 				mov(rcx, ptr[rsp+0x2A8-0x268]); // Actor - rbx - ptr[rsp+0x2A8-0x268]
 				call(ptr [rip + funcLabel]);

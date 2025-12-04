@@ -157,7 +157,9 @@ DWORD CharGenInterface::SavePreset(const std::string & filePath)
 		root["Morphs"]["Regions"] = morphRegionData;
 	}
 
-	root["Morphs"]["Intensity"] = npc->GetFacialBoneMorphIntensity();
+	float intensity = npc->GetFacialBoneMorphIntensity();
+	if(intensity != 1.0f)
+		root["Morphs"]["Intensity"] = intensity;
 
 	Json::Value tintData;
 

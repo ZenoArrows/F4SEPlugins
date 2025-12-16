@@ -364,9 +364,9 @@ bool F4SEPlugin_Preload(const F4SEInterface * f4se)
 		_FATALERROR("loaded in editor, marking as incompatible");
 		return false;
 	}
-	else if(f4se->runtimeVersion != RUNTIME_VERSION_1_11_169)
+	else if(f4se->runtimeVersion != RUNTIME_VERSION_1_11_191)
 	{
-		UInt32 runtimeVersion = RUNTIME_VERSION_1_11_169;
+		UInt32 runtimeVersion = RUNTIME_VERSION_1_11_191;
 		char buf[512];
 		sprintf_s(buf, "LooksMenu Version Error:\nexpected game version %d.%d.%d.%d\nyour game version is %d.%d.%d.%d\nsome features may not work correctly.", 
 			GET_EXE_VERSION_MAJOR(runtimeVersion), 
@@ -474,20 +474,20 @@ bool ScaleformCallback(GFxMovieView * view, GFxValue * value)
 }
 
 typedef UInt32 (* _InstallArmorAddon)(void * unk1, UInt32 unk2, TESForm * form);
-RelocAddr <_InstallArmorAddon> InstallArmorAddon_Original(0x0035C2C0); // "Weapon %s (%08X)"
-RelocAddr <uintptr_t> InstallArmorAddon_Start(0x00356E40 + 0xB4C); // "%s (%08X)[%d]/%s (%08X)"
+RelocAddr <_InstallArmorAddon> InstallArmorAddon_Original(0x0035ECF0); // "Weapon %s (%08X)"
+RelocAddr <uintptr_t> InstallArmorAddon_Start(0x00359870 + 0xB4C); // "%s (%08X)[%d]/%s (%08X)"
 
 typedef void (* _ApplyMaterialProperties)(NiAVObject * object);
-RelocAddr <_ApplyMaterialProperties> ApplyMaterialProperties(0x021BC6A0); // "LoadScreen01:0"
-RelocAddr <uintptr_t> HairColorModify_Start(0x006EBD20 + 0x262);
+RelocAddr <_ApplyMaterialProperties> ApplyMaterialProperties(0x021C1190); // "LoadScreen01:0"
+RelocAddr <uintptr_t> HairColorModify_Start(0x006EE750 + 0x262);
 
-RelocAddr <uintptr_t> GetHairTexturePath_Start(0x006E9360 + 0x10D4); // "[FaceGen]"
+RelocAddr <uintptr_t> GetHairTexturePath_Start(0x006EBD90 + 0x10D4); // "[FaceGen]"
 
-RelocPtr<UInt32> g_faceGenTextureWidth(0x02F37900); // "FaceCustomization"
-RelocPtr<UInt32> g_faceGenTextureHeight(0x02F37904);
+RelocPtr<UInt32> g_faceGenTextureWidth(0x02F42910); // "FaceCustomization"
+RelocPtr<UInt32> g_faceGenTextureHeight(0x02F42914);
 
 typedef void (* _InitializeSharedTarget)(BSGraphics::RenderTargetManager * targetManager, UInt32 type, BSGraphics::RenderTargetManager::RenderTargetProperties * targetInfo, UInt8 unk1);
-RelocAddr <_InitializeSharedTarget> InitializeSharedTarget(0x01834410); // "Render target"
+RelocAddr <_InitializeSharedTarget> InitializeSharedTarget(0x01838B50); // "Render target"
 _InitializeSharedTarget InitializeSharedTarget_Original = nullptr;
 
 void ApplyMaterialProperties_Hook(NiAVObject * node, BGSColorForm * colorForm, BSLightingShaderMaterialBase * shaderMaterial)
@@ -763,7 +763,7 @@ __declspec(dllexport) F4SEPluginVersionData F4SEPlugin_Version =
 
 	0,	// not version independent
 	0,	// not version independent (extended field)
-	{ RUNTIME_VERSION_1_11_169, 0 },	// compatible with 1.11.169
+	{ RUNTIME_VERSION_1_11_191, 0 },	// compatible with 1.11.191
 
 	0,	// works with any version of the script extender. you probably do not need to put anything here
 };

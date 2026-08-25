@@ -3,40 +3,39 @@
 #undef min
 #undef max
 #include "half.hpp"
-#include "f4se/BSGeometry.h"
 
 float round_v(float num)
 {
-	return (num > 0.0) ? floor(num + 0.5) : ceil(num - 0.5);
+	return (num > 0.0f) ? floorf(num + 0.5f) : ceilf(num - 0.5f);
 }
 
 MorphApplicator::MorphApplicator(BSTriShape * _geometry, UInt8 * srcBlock, UInt8 * dstBlock, std::function<void(std::vector<Morpher::Vector3> &)> morph) : geometry(_geometry), morphFunc(morph)
 {
-	UInt64 vertexDesc = geometry->vertexDesc;
-	UInt32 vertexSize = geometry->GetVertexSize();
+	BSGraphics::VertexDesc vertexDesc = geometry->vertexDesc;
+	UInt32 vertexSize = vertexDesc.GetSize();
 	UInt32 blockSize = geometry->numVertices * vertexSize;
-	BSGraphics::TriShape* geomData = static_cast<BSGraphics::TriShape*>(geometry->pRendererData);
+	BSGraphics::TriShape* geomData = static_cast<BSGraphics::TriShape*>(geometry->rendererData);
 	UInt32 numVertices = geometry->numVertices;
 
 	// Pull the base data from the vertex block
 	rawVertices.resize(numVertices);
-	if(vertexDesc & BSTriShape::kFlag_UVs)
+	if(vertexDesc.HasFlag(BSGraphics::Vertex::VF_UV))
 		rawUV.resize(numVertices);
 
-	if(vertexDesc & BSTriShape::kFlag_Normals) {
+	if(vertexDesc.HasFlag(BSGraphics::Vertex::VF_NORMAL)) {
 		rawNormals.resize(numVertices);
-		if(vertexDesc & BSTriShape::kFlag_Tangents) {
+		if(vertexDesc.HasFlag(BSGraphics::Vertex::VF_TANGENT)) {
 			rawTangents.resize(numVertices);
 			rawBitangents.resize(numVertices);
 		}
 	}
 
-	UInt8* vertexBlock = srcBlock ? srcBlock : static_cast<UInt8*>(geomData->pVB->pData);
+	UInt8* vertexBlock = srcBlock ? srcBlock : static_cast<UInt8*>(geomData->vertexBuffer->data);
 	for(UInt32 i = 0; i < numVertices; i++)
 	{
 		UInt8 * vBegin = &vertexBlock[i * vertexSize];
 
-		if(vertexDesc & BSTriShape::kFlag_FullPrecision)
+		if(vertexDesc.HasFlag(BSGraphics::Vertex::VF_FULLPREC))
 		{
 			rawVertices[i].x = (*(float *)vBegin); vBegin += 4;
 			rawVertices[i].y = (*(float *)vBegin); vBegin += 4;
@@ -53,7 +52,7 @@ MorphApplicator::MorphApplicator(BSTriShape * _geometry, UInt8 * srcBlock, UInt8
 			vBegin += 2; // Skip BitangetX
 		}
 
-		if(vertexDesc & BSTriShape::kFlag_UVs)
+		if(vertexDesc.HasFlag(BSGraphics::Vertex::VF_UV))
 		{
 			rawUV[i].u = (*(half_float::half *)vBegin); vBegin += 2;
 			rawUV[i].v = (*(half_float::half *)vBegin); vBegin += 2;
@@ -63,19 +62,19 @@ MorphApplicator::MorphApplicator(BSTriShape * _geometry, UInt8 * srcBlock, UInt8
 	morphFunc(rawVertices);
 
 	Morpher::Triangle* triangles = nullptr;
-	auto triangleData = geomData->pIB;
+	auto triangleData = geomData->indexBuffer;
 	if(triangleData)
-		triangles = static_cast<Morpher::Triangle*>(triangleData->pData);
+		triangles = static_cast<Morpher::Triangle*>(triangleData->data);
 
 	RecalcNormals(geometry->numTriangles, triangles);
 	CalcTangentSpace(geometry->numTriangles, triangles);
 	
-	vertexBlock = dstBlock ? dstBlock : static_cast<UInt8*>(geomData->pVB->pData);
+	vertexBlock = dstBlock ? dstBlock : static_cast<UInt8*>(geomData->vertexBuffer->data);
 	for(UInt32 i = 0; i < numVertices; i++)
 	{
 		UInt8 * vBegin = &vertexBlock[i * vertexSize];
 
-		if(vertexDesc & BSTriShape::kFlag_FullPrecision)
+		if(vertexDesc.HasFlag(BSGraphics::Vertex::VF_FULLPREC))
 		{
 			(*(float *)vBegin) = rawVertices[i].x; vBegin += 4;
 			(*(float *)vBegin) = rawVertices[i].y; vBegin += 4;
@@ -93,12 +92,12 @@ MorphApplicator::MorphApplicator(BSTriShape * _geometry, UInt8 * srcBlock, UInt8
 		}
 
 		// Skip UV write
-		if(vertexDesc & BSTriShape::kFlag_UVs)
+		if(vertexDesc.HasFlag(BSGraphics::Vertex::VF_UV))
 		{
 			vBegin += 4;
 		}
 
-		if(vertexDesc & BSTriShape::kFlag_Normals)
+		if(vertexDesc.HasFlag(BSGraphics::Vertex::VF_NORMAL))
 		{
 			*(SInt8*)vBegin = (UInt8)round_v((((rawNormals[i].x + 1.0f) / 2.0f) * 255.0f)); vBegin += 1;
 			*(SInt8*)vBegin = (UInt8)round_v((((rawNormals[i].y + 1.0f) / 2.0f) * 255.0f)); vBegin += 1;
@@ -106,7 +105,7 @@ MorphApplicator::MorphApplicator(BSTriShape * _geometry, UInt8 * srcBlock, UInt8
 
 			*(SInt8*)vBegin = (UInt8)round_v((((rawBitangents[i].y + 1.0f) / 2.0f) * 255.0f)); vBegin += 1;
 
-			if(vertexDesc & BSTriShape::kFlag_Tangents)
+			if(vertexDesc.HasFlag(BSGraphics::Vertex::VF_TANGENT))
 			{
 				*(SInt8*)vBegin = (UInt8)round_v((((rawTangents[i].x + 1.0f) / 2.0f) * 255.0f)); vBegin += 1;
 				*(SInt8*)vBegin = (UInt8)round_v((((rawTangents[i].y + 1.0f) / 2.0f) * 255.0f)); vBegin += 1;
@@ -120,12 +119,12 @@ MorphApplicator::MorphApplicator(BSTriShape * _geometry, UInt8 * srcBlock, UInt8
 
 void MorphApplicator::RecalcNormals(UInt32 numTriangles, Morpher::Triangle* triangles, const bool smooth, const float smoothThresh)
 {
-	UInt32 numVertices = rawVertices.size();
+	size_t numVertices = rawVertices.size();
 
 	std::vector<Morpher::Vector3> verts(numVertices);
 	std::vector<Morpher::Vector3> norms(numVertices);
 
-	for (UInt32 i = 0; i < numVertices; i++)
+	for (size_t i = 0; i < numVertices; i++)
 	{
 		verts[i].x = rawVertices[i].x * -0.1f;
 		verts[i].z = rawVertices[i].y * 0.1f;
@@ -147,7 +146,7 @@ void MorphApplicator::RecalcNormals(UInt32 numTriangles, Morpher::Triangle* tria
 
 	// Smooth normals
 	if (smooth) {
-		kd_matcher matcher(verts.data(), numVertices);
+		kd_matcher matcher(verts.data(), (int)numVertices);
 		for (int i = 0; i < matcher.matches.size(); i++)
 		{
 			std::pair<Morpher::Vector3*, int>& a = matcher.matches[i].first;
@@ -176,7 +175,7 @@ void MorphApplicator::RecalcNormals(UInt32 numTriangles, Morpher::Triangle* tria
 
 void MorphApplicator::CalcTangentSpace(UInt32 numTriangles, Morpher::Triangle * triangles)
 {
-	UInt32 numVertices = rawVertices.size();
+	size_t numVertices = rawVertices.size();
 
 	std::vector<Morpher::Vector3> tan1;
 	std::vector<Morpher::Vector3> tan2;
@@ -227,7 +226,7 @@ void MorphApplicator::CalcTangentSpace(UInt32 numTriangles, Morpher::Triangle * 
 		tan2[i3] += sdir;
 	}
 
-	for (UInt32 i = 0; i < numVertices; i++)
+	for (size_t i = 0; i < numVertices; i++)
 	{
 		rawTangents[i] = tan1[i];
 		rawBitangents[i] = tan2[i];

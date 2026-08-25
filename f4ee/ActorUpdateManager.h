@@ -1,10 +1,8 @@
 #pragma once
 
-#include "f4se/GameEvents.h"
+#include "Utilities.h"
 
 #include <unordered_set>
-
-class Actor;
 
 class ActorUpdateManager :
 	public BSTEventSink<TESInitScriptEvent>,
@@ -15,9 +13,9 @@ public:
 	ActorUpdateManager() : m_loading(false) { }
 	virtual ~ActorUpdateManager() { }
 
-	virtual	EventResult	ReceiveEvent(TESObjectLoadedEvent * evn, void * dispatcher) override;
-	virtual	EventResult	ReceiveEvent(TESLoadGameEvent * evn, void * dispatcher) override;
-	virtual	EventResult	ReceiveEvent(TESInitScriptEvent * evn, void * dispatcher) override;
+	virtual	BSEventNotifyControl	ProcessEvent(const TESObjectLoadedEvent & evn, BSTEventSource<TESObjectLoadedEvent> * dispatcher) override;
+	virtual	BSEventNotifyControl	ProcessEvent(const TESLoadGameEvent & evn, BSTEventSource<TESLoadGameEvent> * dispatcher) override;
+	virtual	BSEventNotifyControl	ProcessEvent(const TESInitScriptEvent & evn, BSTEventSource<TESInitScriptEvent> * dispatcher) override;
 
 	virtual void Flush();
 	virtual void PushUpdate(Actor * actor);

@@ -1,29 +1,19 @@
 #pragma once
 
-#include "f4se/GameCustomization.h"
-
 #include <unordered_map>
 #include <functional>
 #include <unordered_set>
 #include <mutex>
 
-#include "f4se/GameObjects.h"
-#include "f4se/BSModelDB.h"
-
 #include "StringTable.h"
-
-class Actor;
-class TESRace;
-class BSLightingShaderMaterialBase;
-struct ModInfo;
 
 class CharGenInterface
 {
 public:
 	CharGenInterface() { }
 
-	virtual DWORD SavePreset(const std::string & filePath);
-	virtual DWORD LoadPreset(const std::string & filePath);
+	virtual std::uint32_t SavePreset(const std::string & filePath);
+	virtual std::uint32_t LoadPreset(const std::string & filePath);
 
 	virtual void LoadTintTemplateMods();
 

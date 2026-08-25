@@ -240,7 +240,7 @@ struct Triangle {
 	uint16_t p3;
 
 	Triangle() {
-		p1 = p2 = p3 = 0.0f;
+		p1 = p2 = p3 = 0;
 	}
 	Triangle(uint16_t P1, uint16_t P2, uint16_t P3) {
 		p1 = P1;

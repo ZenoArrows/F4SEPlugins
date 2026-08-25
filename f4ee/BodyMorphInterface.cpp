@@ -2,30 +2,16 @@
 #include "BodyGenInterface.h"
 #include "OverlayInterface.h"
 #include "ActorUpdateManager.h"
-
-#include "f4se/GameData.h"
-#include "f4se/GameStreams.h"
-#include "f4se/GameTypes.h"
-#include "f4se/GameReferences.h"
-#include "f4se/GameRTTI.h"
-#include "f4se/GameObjects.h"
-
-#include "f4se/NiNodes.h"
-#include "f4se/NiObjects.h"
-#include "f4se/NiExtraData.h"
-#include "f4se/BSGeometry.h"
-
-#include "f4se/PluginAPI.h"
 #include "Utilities.h"
 
-#include "common/IDirectoryIterator.h"
 #include <set>
-
 #include <regex>
 #include <algorithm>
-#include <ppl.h>
 #include <atomic>
 #include <chrono>
+
+using namespace REX::W32;
+#include "common/IDirectoryIterator.h"
 
 extern BodyGenInterface g_bodyGenInterface;
 extern BodyMorphInterface g_bodyMorphInterface;
@@ -36,7 +22,7 @@ extern StringTable g_stringTable;
 extern bool g_bEnableBodyMorphs;
 extern bool g_bEnableOverlays;
 extern bool g_bParallelShapes;
-extern F4SETaskInterface * g_task;
+extern const F4SE::TaskInterface * g_task;
 
 using namespace Serialization;
 
@@ -52,12 +38,10 @@ bool TriShapeFullVertexData::ApplyMorph(UInt16 vertCount, NiPoint3 * vertices, f
 	if (!vertices)
 		return outOfBounds;
 
-	UInt32 size = m_vertexDeltas.size();
-	for (UInt32 i = 0; i < size; i++)
+	for (TriShapeVertexDelta & vert : m_vertexDeltas)
 	{
-		TriShapeVertexDelta * vert = &m_vertexDeltas.at(i);
-		UInt16 vertexIndex = vert->index;
-		NiPoint3 * vertexDiff = &vert->diff;
+		UInt16 vertexIndex = vert.index;
+		NiPoint3 * vertexDiff = &vert.diff;
 		if (vertexIndex < vertCount)
 		{
 			vertices[vertexIndex].x += vertexDiff->x * factor;
@@ -79,15 +63,12 @@ bool TriShapePackedVertexData::ApplyMorph(UInt16 vertCount, NiPoint3 * vertices,
 	if (!vertices)
 		return outOfBounds;
 
-	UInt32 size = m_vertexDeltas.size();
-	for (UInt32 i = 0; i < size; i++)
+	for (TriShapePackedVertexDelta & vert : m_vertexDeltas)
 	{
-		TriShapePackedVertexDelta * vert = &m_vertexDeltas.at(i);
-
-		UInt16 vertexIndex = vert->index;
-		float xDelta = (float)vert->x * m_multiplier;
-		float yDelta = (float)vert->y * m_multiplier;
-		float zDelta = (float)vert->z * m_multiplier;
+		UInt16 vertexIndex = vert.index;
+		float xDelta = (float)vert.x * m_multiplier;
+		float yDelta = (float)vert.y * m_multiplier;
+		float zDelta = (float)vert.z * m_multiplier;
 		if (vertexIndex < vertCount)
 		{
 			vertices[vertexIndex].x += xDelta * factor;
@@ -145,12 +126,12 @@ TriShapeMapPtr BodyMorphInterface::GetTrishapeMap(const char * relativePath)
 #endif
 
 	BSResourceNiBinaryStream binaryStream(filePath);
-	if(binaryStream.IsValid())
+	if(binaryStream)
 	{
 		TriShapeMapPtr trishapeMap = std::make_shared<TriShapeMap>();
 
 		UInt32 fileFormat = 0;
-		trishapeMap->memoryUsage += binaryStream.Read((char *)&fileFormat, sizeof(UInt32));
+		trishapeMap->memoryUsage += binaryStream.DoRead((char *)&fileFormat, sizeof(UInt32));
 
 		bool packed = false;
 		if (fileFormat != 'TRI\0' && fileFormat != 'TRIP')
@@ -161,18 +142,18 @@ TriShapeMapPtr BodyMorphInterface::GetTrishapeMap(const char * relativePath)
 
 		UInt32 trishapeCount = 0;
 		if (!packed)
-			trishapeMap->memoryUsage += binaryStream.Read((char *)&trishapeCount, sizeof(UInt32));
+			trishapeMap->memoryUsage += binaryStream.DoRead((char *)&trishapeCount, sizeof(UInt32));
 		else
-			trishapeMap->memoryUsage += binaryStream.Read((char *)&trishapeCount, sizeof(UInt16));
+			trishapeMap->memoryUsage += binaryStream.DoRead((char *)&trishapeCount, sizeof(UInt16));
 
-		char trishapeNameRaw[MAX_PATH];
+		char trishapeNameRaw[256];
 		for (UInt32 i = 0; i < trishapeCount; i++)
 		{
-			memset(trishapeNameRaw, 0, MAX_PATH);
+			memset(trishapeNameRaw, 0, sizeof(trishapeNameRaw));
 
 			UInt8 size = 0;
-			trishapeMap->memoryUsage += binaryStream.Read((char *)&size, sizeof(UInt8));
-			trishapeMap->memoryUsage += binaryStream.Read(trishapeNameRaw, size);
+			trishapeMap->memoryUsage += binaryStream.DoRead((char *)&size, sizeof(UInt8));
+			trishapeMap->memoryUsage += binaryStream.DoRead(trishapeNameRaw, size);
 			F4EEFixedString trishapeName(trishapeNameRaw);
 
 #ifdef _DEBUG_FILEIO
@@ -181,63 +162,63 @@ TriShapeMapPtr BodyMorphInterface::GetTrishapeMap(const char * relativePath)
 
 			if (!packed) {
 				UInt32 trishapeBlockSize = 0;
-				trishapeMap->memoryUsage += binaryStream.Read((char *)&trishapeBlockSize, sizeof(UInt32));
+				trishapeMap->memoryUsage += binaryStream.DoRead((char *)&trishapeBlockSize, sizeof(UInt32));
 			}
 
-			char morphNameRaw[MAX_PATH];
+			char morphNameRaw[256];
 
 			BodyMorphMapPtr morphMap = std::make_shared<BodyMorphMap>();
 
 			UInt32 morphCount = 0;
 			if (!packed)
-				trishapeMap->memoryUsage += binaryStream.Read((char *)&morphCount, sizeof(UInt32));
+				trishapeMap->memoryUsage += binaryStream.DoRead((char *)&morphCount, sizeof(UInt32));
 			else
-				trishapeMap->memoryUsage += binaryStream.Read((char *)&morphCount, sizeof(UInt16));
+				trishapeMap->memoryUsage += binaryStream.DoRead((char *)&morphCount, sizeof(UInt16));
 
 			for (UInt32 j = 0; j < morphCount; j++)
 			{
-				memset(morphNameRaw, 0, MAX_PATH);
+				memset(morphNameRaw, 0, sizeof(morphNameRaw));
 
 				UInt8 tsize = 0;
-				trishapeMap->memoryUsage += binaryStream.Read((char *)&tsize, sizeof(UInt8));
-				trishapeMap->memoryUsage += binaryStream.Read(morphNameRaw, tsize);
+				trishapeMap->memoryUsage += binaryStream.DoRead((char *)&tsize, sizeof(UInt8));
+				trishapeMap->memoryUsage += binaryStream.DoRead(morphNameRaw, tsize);
 				F4EEFixedString morphName(morphNameRaw);
 
 #ifdef _DEBUG_FILEIO
-				_MESSAGE("%s - Reading Morph %s at (%08X)", __FUNCTION__, morphName.c_str(), binaryStream.GetOffset());
+				_MESSAGE("%s - Reading Morph %s at (%08X)", __FUNCTION__, morphName.c_str(), binaryStream.GetPosition());
 #endif
 				if (tsize == 0) {
-					_WARNING("%s - Warning - Read empty name morph.\t(%08X) [%s]", __FUNCTION__, binaryStream.GetOffset(), filePath.c_str());
+					_WARNING("%s - Warning - Read empty name morph.\t(%08X) [%s]", __FUNCTION__, binaryStream.GetPosition(), filePath.c_str());
 				}
 
 				if (!packed) {
 					UInt32 morphBlockSize = 0;
-					trishapeMap->memoryUsage += binaryStream.Read((char *)&morphBlockSize, sizeof(UInt32));
+					trishapeMap->memoryUsage += binaryStream.DoRead((char *)&morphBlockSize, sizeof(UInt32));
 				}
 
 				UInt32 vertexNum = 0;
 				float multiplier = 0.0f;
 				if(!packed) {
-					trishapeMap->memoryUsage += binaryStream.Read((char *)&vertexNum, sizeof(UInt32));
+					trishapeMap->memoryUsage += binaryStream.DoRead((char *)&vertexNum, sizeof(UInt32));
 				}
 				else {
-					trishapeMap->memoryUsage += binaryStream.Read((char *)&multiplier, sizeof(float));
-					trishapeMap->memoryUsage += binaryStream.Read((char *)&vertexNum, sizeof(UInt16));
+					trishapeMap->memoryUsage += binaryStream.DoRead((char *)&multiplier, sizeof(float));
+					trishapeMap->memoryUsage += binaryStream.DoRead((char *)&vertexNum, sizeof(UInt16));
 				}
 
 				if (vertexNum == 0) {
-					_WARNING("%s - Error - Read morph %s on %s with no vertices.\t(%08X) [%s]", __FUNCTION__, morphName.c_str(), trishapeName.c_str(), binaryStream.GetOffset(), filePath.c_str());
+					_WARNING("%s - Error - Read morph %s on %s with no vertices.\t(%08X) [%s]", __FUNCTION__, morphName.c_str(), trishapeName.c_str(), binaryStream.GetPosition(), filePath.c_str());
 				}
 				if (multiplier == 0.0f) {
-					_WARNING("%s - Error - Read morph %s on %s with zero multiplier.\t(%08X) [%s]", __FUNCTION__, morphName.c_str(), trishapeName.c_str(), binaryStream.GetOffset(), filePath.c_str());
+					_WARNING("%s - Error - Read morph %s on %s with zero multiplier.\t(%08X) [%s]", __FUNCTION__, morphName.c_str(), trishapeName.c_str(), binaryStream.GetPosition(), filePath.c_str());
 				}
 
 #ifdef _DEBUG_FILEIO
-				_MESSAGE("%s - Total Vertices read: %d at (%08X)", __FUNCTION__, vertexNum, binaryStream.GetOffset());
+				_MESSAGE("%s - Total Vertices read: %d at (%08X)", __FUNCTION__, vertexNum, binaryStream.GetPosition());
 #endif
 				if (vertexNum > (std::numeric_limits<UInt16>::max)())
 				{
-					_ERROR("%s - Error - Too many vertices for %s on %s read: %d.\t(%08X) [%s]", __FUNCTION__, morphName.c_str(), vertexNum, trishapeName.c_str(), binaryStream.GetOffset(), filePath.c_str());
+					_ERROR("%s - Error - Too many vertices for %s on %s read: %d.\t(%08X) [%s]", __FUNCTION__, morphName.c_str(), vertexNum, trishapeName.c_str(), binaryStream.GetPosition(), filePath.c_str());
 					return nullptr;
 				}
 
@@ -250,8 +231,8 @@ TriShapeMapPtr BodyMorphInterface::GetTrishapeMap(const char * relativePath)
 					for (UInt32 k = 0; k < vertexNum; k++)
 					{
 						TriShapeVertexDelta vertexDelta;
-						trishapeMap->memoryUsage += binaryStream.Read((char *)&vertexDelta.index, sizeof(UInt32));
-						trishapeMap->memoryUsage += binaryStream.Read((char *)&vertexDelta.diff, sizeof(NiPoint3));
+						trishapeMap->memoryUsage += binaryStream.DoRead((char *)&vertexDelta.index, sizeof(UInt32));
+						trishapeMap->memoryUsage += binaryStream.DoRead((char *)&vertexDelta.diff, sizeof(NiPoint3));
 						fullVertexData->m_vertexDeltas.push_back(vertexDelta);
 					}
 
@@ -265,10 +246,10 @@ TriShapeMapPtr BodyMorphInterface::GetTrishapeMap(const char * relativePath)
 					for (UInt32 k = 0; k < vertexNum; k++)
 					{
 						TriShapePackedVertexDelta vertexDelta;
-						trishapeMap->memoryUsage += binaryStream.Read((char *)&vertexDelta.index, sizeof(UInt16));
-						trishapeMap->memoryUsage += binaryStream.Read((char *)&vertexDelta.x, sizeof(SInt16));
-						trishapeMap->memoryUsage += binaryStream.Read((char *)&vertexDelta.y, sizeof(SInt16));
-						trishapeMap->memoryUsage += binaryStream.Read((char *)&vertexDelta.z, sizeof(SInt16));
+						trishapeMap->memoryUsage += binaryStream.DoRead((char *)&vertexDelta.index, sizeof(UInt16));
+						trishapeMap->memoryUsage += binaryStream.DoRead((char *)&vertexDelta.x, sizeof(SInt16));
+						trishapeMap->memoryUsage += binaryStream.DoRead((char *)&vertexDelta.y, sizeof(SInt16));
+						trishapeMap->memoryUsage += binaryStream.DoRead((char *)&vertexDelta.z, sizeof(SInt16));
 
 						packedVertexData->m_vertexDeltas.push_back(vertexDelta);
 					}
@@ -313,7 +294,7 @@ void BodyMorphInterface::ShrinkMorphCache()
 			return (a.second->accessed < b.second->accessed);
 		});
 
-		UInt32 size = it->second->memoryUsage;
+		size_t size = it->second->memoryUsage;
 		m_morphCache.erase(it);
 		m_totalMemory -= size;
 	}
@@ -323,7 +304,7 @@ void BodyMorphInterface::ShrinkMorphCache()
 	m_morphCacheLock.Release();
 }
 
-void BodyMorphInterface::SetCacheLimit(UInt64 limit)
+void BodyMorphInterface::SetCacheLimit(size_t limit)
 {
 	m_memoryLimit = limit;
 }
@@ -334,7 +315,7 @@ void BodyMorphInterface::LoadBodyGenSliderMods()
 
 	ForEachMod([&](const ModInfo * modInfo)
 	{
-		std::string templatesPath = sliderPath + std::string(modInfo->name) + "\\sliders.json";
+		std::string templatesPath = sliderPath + std::string(modInfo->filename) + "\\sliders.json";
 		LoadBodyGenSliders(templatesPath);
 	});
 
@@ -360,7 +341,7 @@ void BodyMorphInterface::LoadBodyGenSliderMods()
 bool BodyMorphInterface::LoadBodyGenSliders(const std::string & filePath)
 {
 	BSResourceNiBinaryStream binaryStream(filePath.c_str());
-	if(binaryStream.IsValid())
+	if(binaryStream)
 	{
 		std::string strFile;
 		BSReadAll(&binaryStream, &strFile);
@@ -430,11 +411,11 @@ bool BodySlider::Parse(const Json::Value & entry)
 	return true;
 }
 
-bool BodyMorphInterface::IsNodeMorphable(NiAVObject * rootNode)
+bool BodyMorphInterface::IsNodeMorphable(NiPointer<NiAVObject> rootNode)
 {
-	return VisitObjects(rootNode, [&](NiAVObject * node)
+	return VisitObjects(rootNode, [&](NiPointer<NiAVObject> node)
 	{
-		BSTriShape * trishape = node->GetAsBSTriShape();
+		BSTriShape * trishape = node->IsTriShape();
 		if(trishape)
 		{
 			NiPointer<NiStringExtraData> bodyMorph(DYNAMIC_CAST(trishape->GetExtraData("MORPH_SHAPE"), NiExtraData, NiStringExtraData));
@@ -452,11 +433,11 @@ bool BodyMorphInterface::IsNodeMorphable(NiAVObject * rootNode)
 	});
 }
 
-void BodyMorphInterface::GetMorphableShapes(NiAVObject * rootNode, std::vector<MorphableShape> & shapes)
+void BodyMorphInterface::GetMorphableShapes(NiPointer<NiAVObject> rootNode, std::vector<MorphableShape> & shapes)
 {
-	VisitObjects(rootNode, [&](NiAVObject * node)
+	VisitObjects(rootNode, [&](NiPointer<NiAVObject> node)
 	{
-		BSTriShape * trishape = node->GetAsBSTriShape();
+		BSTriShape * trishape = node->IsTriShape();
 		if(trishape)
 		{
 			NiPointer<NiStringExtraData> bodyMorph(DYNAMIC_CAST(trishape->GetExtraData("MORPH_SHAPE"), NiExtraData, NiStringExtraData));
@@ -467,7 +448,7 @@ void BodyMorphInterface::GetMorphableShapes(NiAVObject * rootNode, std::vector<M
 			if(!morphPath)
 				return false;
 
-			shapes.push_back({ trishape, morphPath->m_string, bodyMorph->m_string });
+			shapes.push_back({ trishape, morphPath->GetValue(), bodyMorph->GetValue() });
 		}
 		return false;
 	});
@@ -494,10 +475,10 @@ void F4EEBodyGenUpdate::Run()
 #ifdef USE_RESOURCE_UPDATE
 			BipedAnim* biped[] = {
 				actor->biped.get(),
-				actor == (*g_player) ? (*g_player)->playerEquipData.get() : nullptr
+				actor == PlayerCharacter::GetPlayer() ? PlayerCharacter::GetPlayer()->firstPersonBipedAnim.get() : nullptr
 			};
 
-			UInt32 perspectives = actor == (*g_player) ? 2 : 1;
+			UInt32 perspectives = actor == PlayerCharacter::GetPlayer() ? 2 : 1;
 			for (UInt32 s = 0; s < perspectives; s++)
 			{
 				if (biped[s])
@@ -510,7 +491,7 @@ void F4EEBodyGenUpdate::Run()
 			}
 #else
 #ifdef _DEBUG_MOPRHING
-				_MESSAGE("%s - Activating Update for %s (%08X)", __FUNCTION__, CALL_MEMBER_FN(actor, GetReferenceName)(), actor->formID);
+				_MESSAGE("%s - Activating Update for %s (%08X)", __FUNCTION__, CALL_MEMBER_FN(actor, GetDisplayFullName)(), actor->formID);
 #endif
 				// Detaching the node will cause the game to regenerate when UpdateEquipment is called
 				// We only need to detach armor, and armor that's even eligible for morphing
@@ -518,9 +499,9 @@ void F4EEBodyGenUpdate::Run()
 				{
 					BipedAnim* equipData[2];
 					equipData[0] = actor->biped.get();
-					equipData[1] = actor == (*g_player) ? (*g_player)->playerEquipData.get() : nullptr;
+					equipData[1] = actor == PlayerCharacter::GetPlayer() ? PlayerCharacter::GetPlayer()->firstPersonBipedAnim.get() : nullptr;
 
-					for(UInt32 s = 0; s < (actor == (*g_player) ? 2 : 1); s++)
+					for(SInt32 s = 0; s < (actor == PlayerCharacter::GetPlayer() ? 2 : 1); s++)
 					{
 						if(equipData[s])
 						{
@@ -529,7 +510,7 @@ void F4EEBodyGenUpdate::Run()
 								NiPointer<NiAVObject> slotNode(equipData[s]->object[i].partClone);
 								if(slotNode && g_bodyMorphInterface.IsNodeMorphable(slotNode))
 								{
-									NiPointer<NiNode> parent(slotNode->m_parent);
+									NiPointer<NiNode> parent(slotNode->parent);
 									if(parent) {
 										// Tear off any related overlays
 										if(g_bEnableOverlays) {
@@ -541,7 +522,7 @@ void F4EEBodyGenUpdate::Run()
 											}
 										}
 
-										parent->RemoveChild(slotNode);
+										parent->DetachChild(slotNode.get());
 									}
 								}
 							}
@@ -549,34 +530,37 @@ void F4EEBodyGenUpdate::Run()
 					}
 				}
 
-				auto middleProcess = actor->middleProcess;
-				if (middleProcess) {
-					middleProcess->Set3DUpdateFlag(Actor::AIProcess::RESET_MODEL | Actor::AIProcess::RESET_KEEP_HEAD | Actor::AIProcess::RESET_SCALE);
-					middleProcess->Update3DModel(actor, true);
+				auto currentProcess = actor->currentProcess;
+				if (currentProcess) {
+					REX::TEnumSet<RESET_3D_FLAGS, std::uint32_t> updateFlags(RESET_3D_FLAGS::kModel);
+					updateFlags |= RESET_3D_FLAGS::kModel;
+					updateFlags |= RESET_3D_FLAGS::kKeepHead;
+					updateFlags |= RESET_3D_FLAGS::kScale;
+					currentProcess->Set3DUpdateFlag(*updateFlags);
+					currentProcess->Update3DModel(actor, true);
 				}
 #ifdef _DEBUG_MOPRHING
 				else
-					_MESSAGE("%s - Skipping Update for %s (%08X) no middle process", __FUNCTION__, CALL_MEMBER_FN(actor, GetReferenceName)(), actor->formID);
+					_MESSAGE("%s - Skipping Update for %s (%08X) no middle process", __FUNCTION__, CALL_MEMBER_FN(actor, GetDisplayFullName)(), actor->formID);
 #endif
 #endif
 		}
 	}
 }
 
-#include "f4se/BSGraphics.h"
 #include "Morpher.h"
 
 #ifdef USE_RESOURCE_UPDATE
 bool BodyMorphInterface::ApplyMorphsToShape(Actor * actor, const MorphableShape& morphableShape)
 {
 	// Don't allow dynamic shapes
-	BSDynamicTriShape * dynamicShape = morphableShape.object->GetAsBSDynamicTriShape();
+	BSDynamicTriShape * dynamicShape = morphableShape.object->IsDynamicTriShape();
 	if(dynamicShape) {
 		_WARNING("%s - Shape: %s is dynamic and could not be morphed\t[%s]", __FUNCTION__, morphableShape.shapeName.c_str(), morphableShape.morphPath.c_str());
 		return false;
 	}
 
-	BSTriShape * geometry = morphableShape.object->GetAsBSTriShape();
+	BSTriShape * geometry = morphableShape.object->IsTriShape();
 	if(geometry) {
 
 		// Lookup the TRI file from the parsed path
@@ -594,15 +578,15 @@ bool BodyMorphInterface::ApplyMorphsToShape(Actor * actor, const MorphableShape&
 		}
 
 		bool isFemale = false;
-		TESNPC * npc = DYNAMIC_CAST(actor->baseForm, TESForm, TESNPC);
+		TESNPC * npc = DYNAMIC_CAST(actor->data.objectReference, TESForm, TESNPC);
 		if(npc)
-			isFemale = CALL_MEMBER_FN(npc, GetSex)() == 1 ? true : false;
+			isFemale = CALL_MEMBER_FN(npc, GetSex)() == SEX::kFemale ? true : false;
 
 		auto actorMorphs = GetMorphMap(actor, isFemale); // Get the actor's list of morphs
 		if(!actorMorphs) // There's nothing to morph, lets just use the base mesh
 			return false;
 
-		UInt64 vertexDesc = geometry->vertexDesc;
+		BSGraphics::VertexDesc vertexDesc = geometry->vertexDesc;
 		UInt32 vertexSize = geometry->GetVertexSize();
 		UInt32 blockSize = geometry->numVertices * vertexSize;
 
@@ -619,7 +603,7 @@ bool BodyMorphInterface::ApplyMorphsToShape(Actor * actor, const MorphableShape&
 			return false;
 
 #ifdef _DEBUG_MOPRHING
-		_DMESSAGE("%s - Morphing %s (%08X) (%s -> %s) through hook", __FUNCTION__, CALL_MEMBER_FN(actor, GetReferenceName)(), actor->formID, morphableShape.shapeName.c_str(), geometry->m_name.c_str());
+		_DMESSAGE("%s - Morphing %s (%08X) (%s -> %s) through hook", __FUNCTION__, CALL_MEMBER_FN(actor, GetDisplayFullName)(), actor->formID, morphableShape.shapeName.c_str(), geometry->m_name.c_str());
 #endif
 
 		bool cloned = false;
@@ -691,13 +675,13 @@ bool BodyMorphInterface::ApplyMorphsToShape(Actor * actor, const MorphableShape&
 bool BodyMorphInterface::ApplyMorphsToShape(Actor * actor, const MorphableShape& morphableShape)
 {
 	// Don't allow dynamic shapes
-	BSDynamicTriShape * dynamicShape = morphableShape.object->GetAsBSDynamicTriShape();
+	BSDynamicTriShape * dynamicShape = morphableShape.object->IsDynamicTriShape();
 	if(dynamicShape) {
 		_WARNING("%s - Shape: %s is dynamic and could not be morphed\t[%s]", __FUNCTION__, morphableShape.shapeName.c_str(), morphableShape.morphPath.c_str());
 		return false;
 	}
 
-	BSTriShape * geometry = morphableShape.object->GetAsBSTriShape();
+	BSTriShape * geometry = morphableShape.object->IsTriShape();
 	if(geometry) {
 
 		// Lookup the TRI file from the parsed path
@@ -715,39 +699,39 @@ bool BodyMorphInterface::ApplyMorphsToShape(Actor * actor, const MorphableShape&
 		}
 
 		bool isFemale = false;
-		TESNPC * npc = DYNAMIC_CAST(actor->baseForm, TESForm, TESNPC);
+		TESNPC * npc = DYNAMIC_CAST(actor->data.objectReference, TESForm, TESNPC);
 		if(npc)
-			isFemale = CALL_MEMBER_FN(npc, GetSex)() == 1 ? true : false;
+			isFemale = CALL_MEMBER_FN(npc, GetSex)() == SEX::kFemale ? true : false;
 
 		auto actorMorphs = GetMorphMap(actor, isFemale); // Get the actor's list of morphs
 		if(!actorMorphs) // There's nothing to morph, lets just use the base mesh
 			return false;
 
-		UInt64 vertexDesc = geometry->vertexDesc;
-		UInt32 vertexSize = geometry->GetVertexSize();
+		BSGraphics::VertexDesc vertexDesc = geometry->vertexDesc;
+		UInt32 vertexSize = vertexDesc.GetSize();
 		UInt32 blockSize = geometry->numVertices * vertexSize;
 
-		BSGraphics::TriShape* shapeData = static_cast<BSGraphics::TriShape*>(geometry->pRendererData);
+		BSGraphics::TriShape* shapeData = static_cast<BSGraphics::TriShape*>(geometry->rendererData);
 		BSGraphics::TriShape* geomData = nullptr;
 		if(!shapeData)
 			return false;
 
-		auto vertexData = shapeData->pVB;
+		auto vertexData = shapeData->vertexBuffer;
 		if(!vertexData)
 			return false;
 
-		if(!(vertexDesc & BSGeometry::kFlag_Vertex)) // What kind of dumbass mesh doesn't have verts
+		if(!(vertexDesc.HasFlag(BSGraphics::Vertex::VF_VERTEX))) // What kind of dumbass mesh doesn't have verts
 			return false;
 
 #ifdef _DEBUG_MOPRHING
-		_DMESSAGE("%s - Morphing %s (%08X) (%s -> %s) through hook", __FUNCTION__, CALL_MEMBER_FN(actor, GetReferenceName)(), actor->formID, morphableShape.shapeName.c_str(), geometry->m_name.c_str());
+		_DMESSAGE("%s - Morphing %s (%08X) (%s -> %s) through hook", __FUNCTION__, CALL_MEMBER_FN(actor, GetDisplayFullName)(), actor->formID, morphableShape.shapeName.c_str(), geometry->name.c_str());
 #endif
-		UInt32 localBlockSize = blockSize;
-		geomData = g_renderManager->CreateTriShape(&localBlockSize, vertexData->pData, geometry->vertexDesc, shapeData->pIB);
+		std::uint32_t localBlockSize = blockSize;
+		geomData = BSGraphics::Renderer::GetSingleton()->CreateTriShape(&localBlockSize, vertexData->data, geometry->vertexDesc, shapeData->indexBuffer);
 		if(!geomData)
 			return false;
 
-		UInt8* newBlock = static_cast<UInt8*>(geomData->pVB->pData);
+		UInt8* newBlock = static_cast<UInt8*>(geomData->vertexBuffer->data);
 		MorphApplicator morpher(geometry, newBlock, newBlock, [&](std::vector<Morpher::Vector3> & verts)
 		{
 			SimpleLocker locker(&m_morphLock);
@@ -772,11 +756,11 @@ bool BodyMorphInterface::ApplyMorphsToShape(Actor * actor, const MorphableShape&
 		});
 
 		if(geomData) {
-			geometry->pRendererData = geomData;
+			geometry->rendererData = geomData;
 
 			// We don't want to delete the original copy, but we'll release because we are forking (Don't know what the other ref is for?)
 			if(shapeData->uiRefCount > 2)
-				InterlockedDecrement(&shapeData->uiRefCount);
+				_InterlockedDecrement((long *)&shapeData->uiRefCount);
 		}
 		return true;
 	}
@@ -795,10 +779,10 @@ bool BodyMorphInterface::ApplyMorphsToShapes(Actor * actor, NiAVObject * slotNod
 
 	if(g_bParallelShapes)
 	{
-		concurrency::parallel_for_each(begin(shapes), end(shapes), [&](const MorphableShape& shape)
+		std::for_each(std::execution::par_unseq, begin(shapes), end(shapes), [&](const MorphableShape& shape)
 		{
 			ApplyMorphsToShape(actor, shape);
-		}, concurrency::static_partitioner());
+		});
 	}
 	else
 	{
@@ -822,7 +806,7 @@ bool BodyMorphInterface::UpdateMorphs(Actor * actor)
 	return true;
 }
 
-F4EEFixedString PrefixMeshPath(const char * relativePath)
+F4EEFixedString PrefixMeshPath(BSFixedString relativePath)
 {
 	if(relativePath == "")
 		return F4EEFixedString("");
@@ -943,9 +927,9 @@ void BodyMorphInterface::CloneMorphs(Actor * source, Actor * target)
 
 	SimpleLocker locker(&m_morphLock);	
 	bool isFemale = false;
-	TESNPC * npc = DYNAMIC_CAST(source->baseForm, TESForm, TESNPC);
+	TESNPC * npc = DYNAMIC_CAST(source->data.objectReference, TESForm, TESNPC);
 	if(npc)
-		isFemale = CALL_MEMBER_FN(npc, GetSex)() == 1 ? true : false;
+		isFemale = CALL_MEMBER_FN(npc, GetSex)() == SEX::kFemale ? true : false;
 
 	auto it = m_morphMap[isFemale ? 1 : 0].find(source->formID);
 	if(it != m_morphMap[isFemale ? 1 : 0].end()) {
@@ -1072,7 +1056,7 @@ void MorphValueMap::RemoveMorphsByKeyword(BGSKeyword * keyword)
 	}
 }
 
-void BodyMorphInterface::Save(const F4SESerializationInterface * intfc, UInt32 kVersion)
+void BodyMorphInterface::Save(const F4SE::SerializationInterface * intfc, UInt32 kVersion)
 {
 	SimpleLocker locker(&m_morphLock);
 
@@ -1109,11 +1093,11 @@ void BodyMorphInterface::Save(const F4SESerializationInterface * intfc, UInt32 k
 	}
 }
 
-void MorphValueMap::Save(const F4SESerializationInterface * intfc, UInt32 kVersion)
+void MorphValueMap::Save(const F4SE::SerializationInterface * intfc, UInt32 kVersion)
 {
 	intfc->OpenRecord('MRVM', kVersion);
 
-	UInt32 numMorphs = size();
+	UInt32 numMorphs = (UInt32)size();
 
 	WriteData<UInt32>(intfc, &numMorphs);
 
@@ -1126,7 +1110,7 @@ void MorphValueMap::Save(const F4SESerializationInterface * intfc, UInt32 kVersi
 		UInt32 stringId = g_stringTable.GetStringID(morph.first);
 		WriteData<UInt32>(intfc, &stringId);
 
-		UInt32 numKeys = morph.second->size();
+		UInt32 numKeys = (UInt32)morph.second->size();
 		WriteData<UInt32>(intfc, &numKeys);
 
 		for (auto & keys : *morph.second)
@@ -1137,11 +1121,11 @@ void MorphValueMap::Save(const F4SESerializationInterface * intfc, UInt32 kVersi
 	}
 }
 
-bool MorphValueMap::Load(const F4SESerializationInterface * intfc, UInt32 kVersion, const std::unordered_map<UInt32, StringTableItem> & stringTable)
+bool MorphValueMap::Load(const F4SE::SerializationInterface * intfc, UInt32 kVersion, const std::unordered_map<UInt32, StringTableItem> & stringTable)
 {
-	UInt32 type, length, version;
+	std::uint32_t type, length, version;
 
-	if(intfc->GetNextRecordInfo(&type, &version, &length))
+	if(intfc->GetNextRecordInfo(type, version, length))
 	{
 		switch (type)
 		{
@@ -1181,11 +1165,11 @@ bool MorphValueMap::Load(const F4SESerializationInterface * intfc, UInt32 kVersi
 					UserValuesPtr userValues = std::make_shared<UserValues>();
 					for (UInt32 k = 0; k < numKeys; k++)
 					{
-						UInt64 handle = 0;
-						UInt32 formId = 0;
+						std::uint64_t handle = 0;
+						std::uint32_t formId = 0;
 						if(version >= BodyMorphInterface::kVersion2)
 						{
-							if (!ReadData<UInt32>(intfc, &formId))
+							if (!ReadData<std::uint32_t>(intfc, &formId))
 							{
 								_ERROR("%s - Error loading morph keyword formId", __FUNCTION__);
 								return false;
@@ -1193,7 +1177,7 @@ bool MorphValueMap::Load(const F4SESerializationInterface * intfc, UInt32 kVersi
 						}
 						else if(version >= BodyMorphInterface::kVersion1)
 						{
-							if (!ReadData<UInt64>(intfc, &handle))
+							if (!ReadData<std::uint64_t>(intfc, &handle))
 							{
 								_ERROR("%s - Error loading morph keyword handle", __FUNCTION__);
 								return false;
@@ -1210,30 +1194,32 @@ bool MorphValueMap::Load(const F4SESerializationInterface * intfc, UInt32 kVersi
 						if(value == 0.0f)
 							continue;
 
-						UInt64 newHandle = 0;
-						UInt32 newFormId = 0;
+						std::optional<std::uint64_t> newHandle = std::nullopt;
+						std::optional<std::uint32_t> newFormId = std::nullopt;
 
 						if(version >= BodyMorphInterface::kVersion2)
 						{
 							// Skip if handle is no longer valid.
-							if (!intfc->ResolveFormId(formId, &newFormId))
+							newFormId = intfc->ResolveFormID(formId);
+							if (!newFormId)
 								continue;
 						}
 						else if(version >= BodyMorphInterface::kVersion1)
 						{
 							// Skip if handle is no longer valid.
-							if (!intfc->ResolveHandle(handle, &newHandle))
+							newHandle = intfc->ResolveHandle(handle);
+							if (!newHandle)
 								continue;
 						}
 
 						BGSKeyword * keyword = nullptr;
 						if(version >= BodyMorphInterface::kVersion2)
 						{
-							keyword = DYNAMIC_CAST(LookupFormByID(newFormId), TESForm, BGSKeyword);
+							keyword = DYNAMIC_CAST(LookupFormByID(*newFormId), TESForm, BGSKeyword);
 						}
 						else if(version >= BodyMorphInterface::kVersion1)
 						{
-							keyword = (BGSKeyword*)PapyrusVM::GetObjectFromHandle(newHandle, BGSKeyword::kTypeID);
+							keyword = (BGSKeyword*)PapyrusVM::GetObjectFromHandle(*newHandle, BGSKeyword::FORM_ID);
 						}
 
 						userValues->emplace(keyword ? keyword->formID : 0, value);
@@ -1260,14 +1246,14 @@ bool MorphValueMap::Load(const F4SESerializationInterface * intfc, UInt32 kVersi
 	return true;
 }
 
-bool BodyMorphInterface::Load(const F4SESerializationInterface * intfc, bool isFemale, UInt32 version, const std::unordered_map<UInt32, StringTableItem> & stringTable)
+bool BodyMorphInterface::Load(const F4SE::SerializationInterface * intfc, bool isFemale, UInt32 version, const std::unordered_map<UInt32, StringTableItem> & stringTable)
 {
 
-	UInt64 handle = 0;
-	UInt32 formId = 0;
+	std::uint64_t handle = 0;
+	std::uint32_t formId = 0;
 	if(version >= kVersion2)
 	{
-		if (!ReadData<UInt32>(intfc, &formId))
+		if (!ReadData<std::uint32_t>(intfc, &formId))
 		{
 			_ERROR("%s - Error loading actor formId", __FUNCTION__);
 			return false;
@@ -1275,7 +1261,7 @@ bool BodyMorphInterface::Load(const F4SESerializationInterface * intfc, bool isF
 	}
 	else if(version >= kVersion1)
 	{
-		if (!ReadData<UInt64>(intfc, &handle))
+		if (!ReadData<std::uint64_t>(intfc, &handle))
 		{
 			_ERROR("%s - Error loading actor handle", __FUNCTION__);
 			return false;
@@ -1293,19 +1279,21 @@ bool BodyMorphInterface::Load(const F4SESerializationInterface * intfc, bool isF
 	// this allows it to be parsed first, then discarded next save
 	if(g_bEnableBodyMorphs)
 	{
-		UInt64 newHandle = 0;
-		UInt32 newFormId = 0;
+		std::optional<std::uint64_t> newHandle = std::nullopt;
+		std::optional<std::uint32_t> newFormId = std::nullopt;
 
 		if(version >= kVersion2)
 		{
 			// Skip if handle is no longer valid.
-			if (!intfc->ResolveFormId(formId, &newFormId))
+			newFormId = intfc->ResolveFormID(formId);
+			if (!newFormId)
 				return true;
 		}
 		else if(version >= kVersion1)
 		{
 			// Skip if handle is no longer valid.
-			if (!intfc->ResolveHandle(handle, &newHandle))
+			newHandle = intfc->ResolveHandle(handle);
+			if (!newHandle)
 				return true;
 		}
 
@@ -1315,11 +1303,11 @@ bool BodyMorphInterface::Load(const F4SESerializationInterface * intfc, bool isF
 		Actor * actor = nullptr;
 		if(version >= kVersion2)
 		{
-			actor = DYNAMIC_CAST(LookupFormByID(newFormId), TESForm, Actor);
+			actor = DYNAMIC_CAST(LookupFormByID(*newFormId), TESForm, Actor);
 		}
 		else if(version >= kVersion1)
 		{
-			actor = (Actor*)PapyrusVM::GetObjectFromHandle(newHandle, Actor::kTypeID);
+			actor = (Actor*)PapyrusVM::GetObjectFromHandle(*newHandle, Actor::FORM_ID);
 		}
 
 		if(actor)
@@ -1344,42 +1332,43 @@ void BodyMorphInterface::Revert()
 
 void BodyMorphInterface::SetModelProcessor()
 {
-	(*g_TESProcessor) = new BodyMorphProcessor(*g_TESProcessor);
+	BSModelDB::BSModelProcessor* processor = BSModelDB::BSModelProcessor::GetSingleton();
+	BSModelDB::BSModelProcessor::SetSingleton(new BodyMorphProcessor(processor));
 }
 
-void BodyMorphProcessor::Process(BSModelDB::ModelData * modelData, const char * modelName, NiAVObject ** root, UInt32 * typeOut)
+void BodyMorphProcessor::Process(BSModelDB::ModelData * modelData, const char * modelName, NiAVObject ** root, std::uint32_t * typeOut)
 {
 	NiAVObject * object = root ? *root : nullptr;
 	if(object)
 	{
-		object->IncRef();
+		object->IncRefCount();
 		NiExtraData * bodyMorphs = object->GetExtraData("BODYTRI");
 		if(bodyMorphs)
 		{
 			NiStringExtraData * stringData = DYNAMIC_CAST(bodyMorphs, NiExtraData, NiStringExtraData);
 			if(stringData)
 			{
-				stringData->IncRef();
-				auto triPath = PrefixMeshPath(stringData->m_string);
-				stringData->DecRef();
+				stringData->IncRefCount();
+				auto triPath = PrefixMeshPath(stringData->GetValue());
+				stringData->DecRefCount();
 
 				auto trishapeMap = g_bodyMorphInterface.GetTrishapeMap(triPath);
 				if(trishapeMap)
 				{
 					for(auto & shape : *trishapeMap)
 					{
-						BSAutoFixedString str(shape.first);
-						NiAVObject * child = object->GetObjectByName(&str);
+						BSFixedString str(shape.first);
+						NiAVObject * child = object->GetObjectByName(str);
 						if(child) {
-							child->IncRef();
-							BSTriShape * childShape = child->GetAsBSTriShape();
+							child->IncRefCount();
+							BSTriShape * childShape = child->IsTriShape();
 							if(childShape) {
-								NiPointer<NiExtraData> morphFile = NiStringExtraData::Create("MORPH_FILE", triPath);
-								NiPointer<NiExtraData> morphShape = NiStringExtraData::Create("MORPH_SHAPE", shape.first);
+								NiExtraData * morphFile = new NiStringExtraData("MORPH_FILE", triPath);
+								NiExtraData * morphShape = new NiStringExtraData("MORPH_SHAPE", shape.first);
 								childShape->AddExtraData(morphFile);
 								childShape->AddExtraData(morphShape);
 							}
-							child->DecRef();
+							child->DecRefCount();
 						}
 					}
 				}
@@ -1388,7 +1377,7 @@ void BodyMorphProcessor::Process(BSModelDB::ModelData * modelData, const char * 
 			}
 		}
 
-		object->DecRef();
+		object->DecRefCount();
 	}
 
 	if(m_oldProcessor)

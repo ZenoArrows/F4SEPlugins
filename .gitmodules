@@ -3,4 +3,7 @@
 	url = https://github.com/ianpatt/f4se.git
 [submodule "common"]
 	path = common
-	url = https://github.com/ianpatt/common.git
+	url = https://github.com/ZenoArrows/common.git
+[submodule "commonlibf4"]
+	path = commonlibf4
+	url = https://github.com/ZenoArrows/commonlibf4.git

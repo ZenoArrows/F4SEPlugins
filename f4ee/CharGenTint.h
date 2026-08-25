@@ -3,10 +3,6 @@
 #include "json\json.h"
 #include <functional>
 
-#include "f4se/GameCustomization.h"
-
-class TESRace;
-
 class CharGenTintObject
 {
 public:
@@ -15,22 +11,22 @@ public:
 	virtual bool Apply(const TESRace * race, UInt8 gender);
 	virtual bool Parse(const Json::Value & entry);
 
-	virtual CharacterCreation::TintData * CreateCategory();
-	virtual void SetCategory(CharacterCreation::TintData * category);
+	virtual BGSCharacterTint::Template::Group * CreateCategory();
+	virtual void SetCategory(BGSCharacterTint::Template::Group * category);
 
 	virtual BGSCharacterTint::Template::Entry* Create() { return nullptr; }
 	virtual void Set(BGSCharacterTint::Template::Entry* entry) { }
 
-	static void ForEachGender(const TESRace * race, UInt8 gender, std::function<void(tArray<CharacterCreation::TintData *>*, UInt8)> func);
-	static CharacterCreation::TintData * GetCategoryByID(const tArray<CharacterCreation::TintData*> * data, UInt32 id);
-	static CharacterCreation::TintData * GetCategoryByName(const tArray<CharacterCreation::TintData*> * data, const char * name);
-	static BGSCharacterTint::Template::Entry * GetTemplateByID(const tArray<BGSCharacterTint::Template::Entry*> * data, UInt32 id);
+	static void ForEachGender(const TESRace * race, UInt8 gender, std::function<void(BGSCharacterTint::Template::Groups *, UInt8)> func);
+	static BGSCharacterTint::Template::Group * GetCategoryByID(const BGSCharacterTint::Template::Groups * data, UInt32 id);
+	static BGSCharacterTint::Template::Group * GetCategoryByName(const BGSCharacterTint::Template::Groups * data, const char * name);
+	static BGSCharacterTint::Template::Entry * GetTemplateByID(const BSTArray<BGSCharacterTint::Template::Entry*> * data, UInt32 id);
 
-	static UInt32 ParseSlot(const std::string & slotName);
-	static std::string WriteSlot(UInt32 blendOp);
+	static BGSCharacterTint::EntrySlot ParseSlot(const std::string & slotName);
+	static std::string WriteSlot(BGSCharacterTint::EntrySlot entrySlot);
 	
-	static UInt32 ParseBlendOp(const std::string & blendName);
-	static std::string WriteBlendOp(UInt32 blendOp);
+	static BGSCharacterTint::BlendOp ParseBlendOp(const std::string & blendName);
+	static std::string WriteBlendOp(BGSCharacterTint::BlendOp blendOp);
 
 	static UInt32 ParseFlags(const Json::Value & value);
 	static void WriteFlags(UInt32 flags, Json::Value & value);
@@ -59,40 +55,40 @@ public:
 class CharGenTintBase : public CharGenTintObject
 {
 public:
-	CharGenTintBase(UInt32 id) : CharGenTintObject(0), templateId(id), slot(0), flags(0) { }
+	CharGenTintBase(UInt16 id) : CharGenTintObject(0), templateId(id), slot(BGSCharacterTint::EntrySlot::kFaceDetail), flags(0) { }
 	virtual ~CharGenTintBase() { }
 
-	virtual CharacterCreation::TintData * CreateCategory() { return nullptr; }
-	virtual void SetCategory(CharacterCreation::TintData * category) { }
+	virtual BGSCharacterTint::Template::Group * CreateCategory() { return nullptr; }
+	virtual void SetCategory(BGSCharacterTint::Template::Group * category) { }
 
 	virtual void Set(BGSCharacterTint::Template::Entry* entry);
 
 	virtual bool Apply(const TESRace * race, UInt8 gender);
 	virtual bool Parse(const Json::Value & entry);
 
-	UInt32 templateId;
-	UInt32 slot;
-	UInt32 flags;
+	UInt16						templateId;
+	BGSCharacterTint::EntrySlot	slot;
+	UInt8						flags;
 };
 
 class CharGenTintMask : public CharGenTintBase
 {
 public:
-	CharGenTintMask(UInt32 id) : CharGenTintBase(id), blendOp(0) { }
+	CharGenTintMask(UInt16 id) : CharGenTintBase(id), blendOp(BGSCharacterTint::BlendOp::kDefault) { }
 	virtual ~CharGenTintMask() { }
 
 	virtual bool Parse(const Json::Value & entry);
 	virtual BGSCharacterTint::Template::Entry* Create();
 	virtual void Set(BGSCharacterTint::Template::Entry* entry);
 
-	std::string		texture;
-	UInt32			blendOp;
+	std::string					texture;
+	BGSCharacterTint::BlendOp	blendOp;
 };
 
 class CharGenTintPalette : public CharGenTintBase
 {
 public:
-	CharGenTintPalette(UInt32 id) : CharGenTintBase(id) { }
+	CharGenTintPalette(UInt16 id) : CharGenTintBase(id) { }
 	virtual ~CharGenTintPalette() { }
 
 	virtual bool Parse(const Json::Value & entry);
@@ -100,22 +96,22 @@ public:
 	virtual void Set(BGSCharacterTint::Template::Entry* entry);
 
 	std::string		texture;
-	std::vector<BGSCharacterTint::Template::Palette::ColorData> colors;
+	std::vector<BGSCharacterTint::Template::Palette::ColorValue> colors;
 };
 
 class CharGenTintTextureSet : public CharGenTintBase
 {
 public:
-	CharGenTintTextureSet(UInt32 id) : CharGenTintBase(id), blendOp(0), defaultValue(0.0f) { }
+	CharGenTintTextureSet(UInt16 id) : CharGenTintBase(id), blendOp(BGSCharacterTint::BlendOp::kDefault), defaultValue(0.0f) { }
 	virtual ~CharGenTintTextureSet() { }
 
 	virtual bool Parse(const Json::Value & entry);
 	virtual BGSCharacterTint::Template::Entry* Create();
 	virtual void Set(BGSCharacterTint::Template::Entry* entry);
 
-	std::string diffuse;
-	std::string normal;
-	std::string specular;
-	UInt32	blendOp;
-	float	defaultValue;
+	std::string 				diffuse;
+	std::string 				normal;
+	std::string 				specular;
+	BGSCharacterTint::BlendOp	blendOp;
+	float						defaultValue;
 };

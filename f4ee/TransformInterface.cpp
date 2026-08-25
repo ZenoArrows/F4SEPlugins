@@ -1,23 +1,12 @@
 #include "TransformInterface.h"
 
-#include "f4se/PluginAPI.h"
-
-#include "f4se/GameReferences.h"
-#include "f4se/GameObjects.h"
-#include "f4se/GameRTTI.h"
-#include "f4se/GameForms.h"
-#include "f4se/GameSettings.h"
-#include "f4se/GameData.h"
-
-#include "f4se/NiNodes.h"
-
 #include "Utilities.h"
 
 extern StringTable g_stringTable;
 #ifdef _TRANSFORMS
 extern NiTransformInterface g_transformInterface;
 #endif
-extern F4SETaskInterface * g_task;
+extern const F4SE::TaskInterface * g_task;
 
 TransformDataPtr ActorData::SetTransformData(bool isFemale, bool isFirstPerson, const TransformData & data)
 {
@@ -432,26 +421,26 @@ F4EEFixedString NiTransformInterface::GetRootModelPath(Actor * refr, bool firstP
 	Actor * character = DYNAMIC_CAST(refr, TESObjectREFR, Actor);
 	if (character) {
 		if (firstPerson) {
-			Setting	* setting = GetGameSetting("sFirstPersonSkeleton");
-			if (setting && setting->GetType() == Setting::kType_String)
-				return F4EEFixedString(setting->data.s);
+			Setting	* setting = GetINISetting("sFirstPersonSkeleton");
+			if (setting && setting->GetType() == Setting::SETTING_TYPE::kString)
+				return F4EEFixedString(setting->GetString());
 		}
 
 		TESRace * race = character->race;
 		if (!race) {
-			TESNPC * actorBase = DYNAMIC_CAST(refr->baseForm, TESForm, TESNPC);
+			TESNPC * actorBase = DYNAMIC_CAST(refr->data.objectReference, TESForm, TESNPC);
 			if (actorBase)
-				race = actorBase->race.race;
+				race = actorBase->formRace;
 		}
 
 		if (race)
-			model = &race->models[isFemale ? 1 : 0];
+			model = &race->skeletonModel[isFemale ? 1 : 0];
 	}
 	else
-		model = DYNAMIC_CAST(refr->baseForm, TESForm, TESModel);
+		model = DYNAMIC_CAST(refr->data.objectReference, TESForm, TESModel);
 
 	if (model)
-		return F4EEFixedString(model->GetModelName());
+		return F4EEFixedString(model->GetModel());
 
 	return F4EEFixedString("");
 }
@@ -472,18 +461,18 @@ void F4EETransformUpdate::Run()
 		return;
 
 #ifdef _DEBUG
-	_MESSAGE("%s - Activating Transform for %s (%08X)", __FUNCTION__, CALL_MEMBER_FN(actor, GetReferenceName)(), actor->formID);
+	_MESSAGE("%s - Activating Transform for %s (%08X)", __FUNCTION__, CALL_MEMBER_FN(actor, GetDisplayFullName)(), actor->formID);
 #endif
-	TESNPC * npc = DYNAMIC_CAST(actor->baseForm, TESForm, TESNPC);
+	TESNPC * npc = DYNAMIC_CAST(actor->data.objectReference, TESForm, TESNPC);
 	if (!npc)
 		return;
 
-	UInt64 gender = CALL_MEMBER_FN(npc, GetSex)();
-	bool isFemale = gender == 1 ? true : false;
+	SEX gender = CALL_MEMBER_FN(npc, GetSex)();
+	bool isFemale = gender == SEX::kFemale ? true : false;
 
-	NiNode * rootNode[2];
-	rootNode[0] = actor->GetActorRootNode(false);
-	rootNode[1] = actor == (*g_player) ? actor->GetActorRootNode(true) : nullptr;
+	NiAVObject * rootNode[2];
+	rootNode[0] = actor->Get3D(false);
+	rootNode[1] = actor == PlayerCharacter::GetPlayer() ? actor->Get3D(true) : nullptr;
 
 	for (int i = 0; i <= 1; ++i)
 	{
@@ -513,9 +502,9 @@ void NiTransformInterface::RevertSkeleton(Actor * actor, NiAVObject * rootNode, 
 		for (auto & node : it->second)
 		{
 			auto objectName = BSFixedString(node.first.c_str());
-			auto targetNode = rootNode->GetObjectByName(&objectName);
+			auto targetNode = rootNode->GetObjectByName(objectName);
 			if (targetNode) {
-				targetNode->m_localTransform = node.second;
+				targetNode->local = node.second;
 			}
 		}
 	}
@@ -523,27 +512,27 @@ void NiTransformInterface::RevertSkeleton(Actor * actor, NiAVObject * rootNode, 
 
 void NiTransformInterface::SetModelProcessor()
 {
-	(*g_TESProcessor) = new TransformProcessor(*g_TESProcessor);
+	BSModelDB::BSModelProcessor* processor = BSModelDB::BSModelProcessor::GetSingleton();
+	BSModelDB::BSModelProcessor::SetSingleton(new TransformProcessor(processor));
 }
 
 void NiTransformInterface::LoadAllSkeletons()
 {
 	mTransformCache.clear();
 
-	Setting	* setting = GetGameSetting("sFirstPersonSkeleton");
-	if (setting && setting->GetType() == Setting::kType_String)
+	Setting	* setting = GetINISetting("sFirstPersonSkeleton");
+	if (setting && setting->GetType() == Setting::SETTING_TYPE::kString)
 	{
-		mTransformCache.emplace(setting->data.s, NodeTransformCache::NodeMap());
+		mTransformCache.emplace(setting->GetString(), NodeTransformCache::NodeMap());
 	}
 	
-	for (UInt32 i = 0; i < (*g_dataHandler)->arrRACE.count; ++i)
+	for (TESForm * form : TESDataHandler::GetSingleton()->formArrays[std::to_underlying(ENUM_FORM_ID::kRACE)])
 	{
-		TESRace * race = nullptr;
-		(*g_dataHandler)->arrRACE.GetNthItem(i, race);
+		TESRace * race = (TESRace *)form;
 		if (race) {
 			for (int i = 0; i <= 1; ++i)
 			{
-				F4EEFixedString modelName = race->models[i].GetModelName();
+				F4EEFixedString modelName = race->skeletonModel[i].GetModel();
 				if (modelName.length() > 0) {
 					mTransformCache.emplace(modelName, NodeTransformCache::NodeMap());
 				}
@@ -558,16 +547,16 @@ void NiTransformInterface::CacheSkeleton(const char * modelName, NiAVObject * ro
 	if (it != mTransformCache.end())
 	{
 		NodeTransformCache::NodeMap transformMap;
-		VisitObjects(root, [&](NiAVObject* child)
+		VisitObjects(root, [&](NiPointer<NiAVObject> child)
 		{
-			if (child->m_name == NULL)
+			if (child->name == NULL)
 				return false;
 
-			F4EEFixedString localName(child->m_name);
+			F4EEFixedString localName(child->name);
 			if (localName.length() == 0)
 				return false;
 
-			transformMap[localName] = child->m_localTransform;
+			transformMap[localName] = child->local;
 			return false;
 		});
 
@@ -575,7 +564,7 @@ void NiTransformInterface::CacheSkeleton(const char * modelName, NiAVObject * ro
 	}
 }
 
-void TransformProcessor::Process(BSModelDB::ModelData * modelData, const char * modelName, NiAVObject ** root, UInt32 * typeOut)
+void TransformProcessor::Process(BSModelDB::ModelData * modelData, const char * modelName, NiAVObject ** root, std::uint32_t * typeOut)
 {
 #ifdef _TRANSFORMS
 	g_transformInterface.CacheSkeleton(modelName, *root);

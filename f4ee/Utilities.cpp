@@ -1,12 +1,5 @@
 #include "Utilities.h"
-#include "f4se/GameStreams.h"
-#include "f4se/NiNodes.h"
-#include "f4se/NiTypes.h"
-#include "f4se/GameForms.h"
-#include "f4se/GameData.h"
-#include "f4se/GameReferences.h"
-#include "f4se/GameObjects.h"
-#include "f4se/GameRTTI.h"
+#include "StringTable.h"
 
 #include <iomanip>
 #include <sstream>
@@ -16,10 +9,12 @@
 #include <algorithm>
 #include <functional>
 
+FunctionHandlerCache g_functionHandlerCache;
+
 template <>
-bool Serialization::WriteData<F4EEFixedString>(const F4SESerializationInterface * intfc, const F4EEFixedString * str)
+bool Serialization::WriteData<F4EEFixedString>(const F4SE::SerializationInterface * intfc, const F4EEFixedString * str)
 {
-	UInt16 len = strlen(str->c_str());
+	UInt16 len = (UInt16)strlen(str->c_str());
 	if (len > SHRT_MAX)
 		return false;
 	if (! intfc->WriteRecordData(&len, sizeof(len)))
@@ -32,7 +27,7 @@ bool Serialization::WriteData<F4EEFixedString>(const F4SESerializationInterface 
 }
 
 template <>
-bool Serialization::ReadData<F4EEFixedString>(const F4SESerializationInterface * intfc, F4EEFixedString * str)
+bool Serialization::ReadData<F4EEFixedString>(const F4SE::SerializationInterface * intfc, F4EEFixedString * str)
 {
 	UInt16 len = 0;
 
@@ -78,22 +73,21 @@ std::string bytes_to_string(std::size_t size) {
 void BSReadAll(BSResourceNiBinaryStream* fin, std::string* str)
 {
 	char ch;
-	UInt32 ret = fin->Read(&ch, 1);
+	size_t ret = fin->DoRead(&ch, 1);
 	while (ret > 0) {
 		str->push_back(ch);
-		ret = fin->Read(&ch, 1);
+		ret = fin->DoRead(&ch, 1);
 	}
 }
 
-bool VisitObjects(NiAVObject * parent, std::function<bool(NiAVObject*)> functor)
+bool VisitObjects(NiPointer<NiAVObject> parent, std::function<bool(NiPointer<NiAVObject>)> functor)
 {
 	if (functor(parent))
 		return true;
 
-	NiPointer<NiNode> node(parent->GetAsNiNode());
+	NiPointer<NiNode> node(parent->IsNode());
 	if(node) {
-		for(UInt32 i = 0; i < node->m_children.m_emptyRunStart; i++) {
-			NiPointer<NiAVObject> object(node->m_children.m_data[i]);
+		for(NiPointer<NiAVObject> object : node->children) {
 			if(object) {
 				if (VisitObjects(object, functor))
 					return true;
@@ -107,7 +101,7 @@ bool VisitObjects(NiAVObject * parent, std::function<bool(NiAVObject*)> functor)
 
 std::string GetFormIdentifier(TESForm * form)
 {
-	char formName[MAX_PATH];
+	char formName[256];
 	UInt8 modIndex = form->formID >> 24;
 	UInt32 modForm = form->formID & 0xFFFFFF;
 
@@ -115,16 +109,16 @@ std::string GetFormIdentifier(TESForm * form)
 	if(modIndex == 0xFE)
 	{
 		UInt16 lightIndex = (form->formID >> 12) & 0xFFF;
-		if(lightIndex < (*g_dataHandler)->modList.lightMods.count)
-			modInfo = (*g_dataHandler)->modList.lightMods[lightIndex];
+		if(lightIndex < TESDataHandler::GetSingleton()->compiledFileCollection.smallFiles.size())
+			modInfo = TESDataHandler::GetSingleton()->compiledFileCollection.smallFiles[lightIndex];
 	}
 	else
 	{
-		modInfo = (*g_dataHandler)->modList.loadedMods[modIndex];
+		modInfo = TESDataHandler::GetSingleton()->compiledFileCollection.files[modIndex];
 	}
 	
 	if (modInfo) {
-		sprintf_s(formName, "%s|%06X", modInfo->name, modForm);
+		sprintf_s(formName, "%s|%06X", modInfo->filename, modForm);
 	}
 
 	return formName;
@@ -139,28 +133,33 @@ TESForm * GetFormFromIdentifier(const std::string & formIdentifier)
 	UInt32 formId = 0;
 	sscanf_s(modForm.c_str(), "%X", &formId);
 
-	UInt8 modIndex = (*g_dataHandler)->GetLoadedModIndex(modName.c_str());
-	if(modIndex != 0xFF) {
-		formId |= ((UInt32)modIndex) << 24;
+	std::optional<uint8_t> modIndex = TESDataHandler::GetSingleton()->GetLoadedModIndex(modName.c_str());
+	if(modIndex) {
+		formId |= ((UInt32)*modIndex) << 24;
 	}
 	else
 	{
-		UInt16 lightModIndex = (*g_dataHandler)->GetLoadedLightModIndex(modName.c_str());
-		if(lightModIndex != 0xFFFF) {
-			formId |= 0xFE000000 | (UInt32(lightModIndex) << 12);
+		std::optional<uint16_t> lightModIndex = TESDataHandler::GetSingleton()->GetLoadedLightModIndex(modName.c_str());
+		if(lightModIndex) {
+			formId |= 0xFE000000 | (UInt32(*lightModIndex) << 12);
 		}
 	}
 
 	return LookupFormByID(formId);
 }
 
+TESForm * LookupFormByID(std::uint32_t id)
+{
+	return TESForm::GetFormByNumericID(id);
+}
+
 TESRace * GetActorRace(Actor * actor)
 {
 	TESRace * race = actor->race;
 	if(!race) {
-		TESNPC * npc = DYNAMIC_CAST(actor->baseForm, TESForm, TESNPC);
+		TESNPC * npc = DYNAMIC_CAST(actor->data.objectReference, TESForm, TESNPC);
 		if(npc)
-			race = npc->race.race;
+			race = npc->formRace;
 	}
 
 	return race;
@@ -169,12 +168,10 @@ TESRace * GetActorRace(Actor * actor)
 TESRace * GetRaceByName(const std::string & raceName)
 {
 	F4EEFixedString lower(raceName.c_str());
-	for(UInt64 i = 0; i < (*g_dataHandler)->arrRACE.count; i++)
+	for(TESForm * form : TESDataHandler::GetSingleton()->formArrays[std::to_underlying(ENUM_FORM_ID::kRACE)])
 	{
-		TESRace * race;
-		(*g_dataHandler)->arrRACE.GetNthItem(i, race);
-
-		F4EEFixedString raceName(race->editorId.c_str());
+		TESRace * race = (TESRace *)form;
+		F4EEFixedString raceName(race->formEditorID.c_str());
 		if(raceName == lower)
 		{
 			return race;
@@ -186,13 +183,13 @@ TESRace * GetRaceByName(const std::string & raceName)
 
 namespace std {
 std::string& ltrim(std::string& s) {
-	s.erase(s.begin(), std::find_if_not(s.begin(), s.end(), isspace));
+	s.erase(s.begin(), std::find_if_not(s.begin(), s.end(), [](char c) { return std::isspace(static_cast<unsigned char>(c)); }));
 	return s;
 }
 
 // trim from end
 std::string& rtrim(std::string& s) {
-	s.erase((std::find_if_not(s.rbegin(), s.rend(), isspace)).base(), s.end());
+	s.erase((std::find_if_not(s.rbegin(), s.rend(), [](char c) { return std::isspace(static_cast<unsigned char>(c)); })).base(), s.end());
 	return s;
 }
 
@@ -236,9 +233,9 @@ void VisitLeveledCharacter(TESLevCharacter * character, std::function<void(TESNP
 
 		if(character)
 		{
-			for(UInt32 i = 0; i < character->leveledList.length; i++)
+			for(std::int8_t i = 0; i < character->baseListCount; i++)
 			{
-				TESForm * form = character->leveledList.entries[i].form;
+				TESForm * form = character->leveledLists[i].form;
 				if(form) {
 					TESLevCharacter * levCharacter = DYNAMIC_CAST(form, TESForm, TESLevCharacter);
 					if(levCharacter && visited.find(levCharacter) == visited.end())
@@ -255,26 +252,26 @@ void VisitLeveledCharacter(TESLevCharacter * character, std::function<void(TESNP
 	}
 }
 
-NiNode * GetRootNode(Actor * actor, NiAVObject * object)
+NiNode * GetRootNode(Actor * actor, NiPointer<NiAVObject> object)
 {
-	NiNode * rootNode = actor->GetActorRootNode(false);
+	NiAVObject * rootNode = actor->Get3D(false);
 
 	bool isFirstPerson = false;
 
 	// Only the player will have a first person skeleton
-	if(actor == (*g_player)) {
-		NiNode * node1P = actor->GetActorRootNode(true);
+	if(actor == PlayerCharacter::GetPlayer()) {
+		NiAVObject * node1P = actor->Get3D(true);
 
 		// Go up to the root and see if it is the first person one
-		NiNode * foundNode = nullptr;
-		NiNode * parent = object->m_parent;
+		NiAVObject * foundNode = nullptr;
+		NiNode * parent = object->parent;
 		while(parent)
 		{
 			if (parent == node1P) {
 				foundNode = node1P;
 				break;
 			}
-			parent = parent->m_parent;
+			parent = parent->parent;
 		}
 
 		isFirstPerson = (foundNode == node1P);
@@ -282,18 +279,44 @@ NiNode * GetRootNode(Actor * actor, NiAVObject * object)
 			rootNode = node1P;
 	}
 
-	return rootNode;
+	return (NiNode *)rootNode;
 }
 
 void ForEachMod(std::function<void(const ModInfo*)> functor)
 {
-	for(int i = 0; i < (*g_dataHandler)->modList.loadedMods.count; i++)
-	{
-		functor((*g_dataHandler)->modList.loadedMods[i]);
+	const TESFileCollection& coll = TESDataHandler::GetSingleton()->compiledFileCollection;
+	std::for_each(coll.files.begin(), coll.files.end(), functor);
+	std::for_each(coll.smallFiles.begin(), coll.smallFiles.end(), functor);
+}
+
+void * Heap_Allocate(size_t size)
+{
+    MemoryManager& mm = MemoryManager::GetSingleton();
+	return mm.Allocate(size, 0, false);
+}
+
+void Heap_Free(void * ptr)
+{
+    MemoryManager& mm = MemoryManager::GetSingleton();
+	mm.Deallocate(ptr, false);
+}
+
+UInt64 PapyrusVM::GetHandleFromObject(void * src, ENUM_FORM_ID formID)
+{
+	BSScript::IVirtualMachine		* registry =	GameVM::GetSingleton()->impl.get();
+	BSScript::IObjectHandlePolicy	& policy =		registry->GetObjectHandlePolicy();
+
+	return policy.GetHandleForObject((std::uint32_t)formID, (void*)src);
+}
+
+void * PapyrusVM::GetObjectFromHandle(UInt64 handle, ENUM_FORM_ID formID)
+{
+	BSScript::IVirtualMachine		* registry =	GameVM::GetSingleton()->impl.get();
+	BSScript::IObjectHandlePolicy	& policy =		registry->GetObjectHandlePolicy();
+
+	if(handle == policy.EmptyHandle()) {
+		return NULL;
 	}
 
-	for(int i = 0; i < (*g_dataHandler)->modList.lightMods.count; i++)
-	{
-		functor((*g_dataHandler)->modList.lightMods[i]);
-	}
+	return policy.GetObjectForHandle((std::uint32_t)formID, (std::size_t)handle);
 }

@@ -1,5 +1,4 @@
 #include "StringTable.h"
-#include "f4se/PluginAPI.h"
 #include "Utilities.h"
 
 extern StringTable g_stringTable;
@@ -35,10 +34,10 @@ void StringTable::RemoveString(const F4EEFixedString & str)
 	auto it = m_table.find(str);
 	if(it != m_table.end())
 	{
-		for(long int i = m_tableVector.size() - 1; i >= 0; --i)
+		for(size_t i = m_tableVector.size(); i > 0; --i)
 		{
-			if(m_tableVector[i].lock() == it->second.lock())
-				m_tableVector.erase(m_tableVector.begin() + i);
+			if(m_tableVector[i - 1].lock() == it->second.lock())
+				m_tableVector.erase(m_tableVector.begin() + (i - 1));
 		}
 
 		m_table.erase(it);
@@ -47,21 +46,21 @@ void StringTable::RemoveString(const F4EEFixedString & str)
 
 UInt32 StringTable::GetStringID(const StringTableItem & str)
 {
-	for(long int i = m_tableVector.size() - 1; i >= 0; --i)
+	for(size_t i = m_tableVector.size(); i > 0; --i)
 	{
-		auto item = m_tableVector[i].lock();
+		auto item = m_tableVector[i - 1].lock();
 		if(item == str)
-			return i;
+			return (UInt32)i - 1;
 	}
 
 	return -1;
 }
 
-void StringTable::Save(const F4SESerializationInterface * intfc, UInt32 kVersion)
+void StringTable::Save(const F4SE::SerializationInterface * intfc, UInt32 kVersion)
 {
 	intfc->OpenRecord('STTB', kVersion);
 
-	UInt32 totalStrings = m_tableVector.size();
+	UInt32 totalStrings = (UInt32)m_tableVector.size();
 	WriteData<UInt32>(intfc, &totalStrings);
 
 	for (auto & str : m_tableVector)
@@ -76,7 +75,7 @@ void StringTable::Save(const F4SESerializationInterface * intfc, UInt32 kVersion
 	}
 }
 
-bool StringTable::Load(const F4SESerializationInterface * intfc, UInt32 kVersion, std::unordered_map<UInt32, StringTableItem> & stringTable)
+bool StringTable::Load(const F4SE::SerializationInterface * intfc, UInt32 kVersion, std::unordered_map<UInt32, StringTableItem> & stringTable)
 {
 	bool error = false;
 	UInt32 totalStrings = 0;

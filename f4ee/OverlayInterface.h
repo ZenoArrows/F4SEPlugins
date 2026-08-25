@@ -1,10 +1,5 @@
 #pragma once
 
-class Actor;
-class NiAVObject;
-class NiNode;
-class BGSKeyword;
-class BSTriShape;
 
 #include <map>
 #include <unordered_map>
@@ -12,15 +7,10 @@ class BSTriShape;
 #include <functional>
 #include <stack>
 
-#include "f4se/GameTypes.h"
-#include "f4se/NiTypes.h"
 #include "StringTable.h"
 #include "Utilities.h"
 
-#include "f4se/GameThreads.h"
-#include "f4se/GameEvents.h"
-
-class F4EEOverlayUpdate : public ITaskDelegate
+class F4EEOverlayUpdate : public F4SE::ITaskDelegate
 {
 public:
 	F4EEOverlayUpdate(TESForm * form, UInt32 slot);
@@ -32,7 +22,7 @@ protected:
 	UInt32					m_uid;
 };
 
-class F4EEUpdateOverlays : public ITaskDelegate
+class F4EEUpdateOverlays : public F4SE::ITaskDelegate
 {
 public:
 	F4EEUpdateOverlays(TESForm * form);
@@ -43,8 +33,7 @@ protected:
 	UInt32					m_formId;
 };
 
-class OverlayInterface : public BSTEventSink<TESObjectLoadedEvent>,
-						 public BSTEventSink<TESLoadGameEvent>
+class OverlayInterface
 {
 public:
 	OverlayInterface() : m_highestUID(0) { }
@@ -115,24 +104,24 @@ public:
 				flags &= ~OverlayInterface::OverlayData::kHasRemapIndex;
 		}
 
-		void Save(const F4SESerializationInterface * intfc, UInt32 kVersion);
-		bool Load(const F4SESerializationInterface * intfc, UInt32 kVersion, const std::unordered_map<UInt32, StringTableItem> & stringTable);
+		void Save(const F4SE::SerializationInterface * intfc, UInt32 kVersion);
+		bool Load(const F4SE::SerializationInterface * intfc, UInt32 kVersion, const std::unordered_map<UInt32, StringTableItem> & stringTable);
 	};
 	typedef std::shared_ptr<OverlayData> OverlayDataPtr;
 
 	class PriorityMap : public std::multimap<SInt32, OverlayDataPtr>
 	{
 	public:
-		void Save(const F4SESerializationInterface * intfc, UInt32 kVersion);
-		bool Load(const F4SESerializationInterface * intfc, bool isFemale, UInt32 kVersion, const std::unordered_map<UInt32, StringTableItem> & stringTable);
+		void Save(const F4SE::SerializationInterface * intfc, UInt32 kVersion);
+		bool Load(const F4SE::SerializationInterface * intfc, bool isFemale, UInt32 kVersion, const std::unordered_map<UInt32, StringTableItem> & stringTable);
 	};
 	typedef std::shared_ptr<PriorityMap> PriorityMapPtr;
 
 	class OverlayMap : public std::unordered_map<UInt32, PriorityMapPtr>
 	{
 	public:
-		void Save(const F4SESerializationInterface * intfc, UInt32 kVersion);
-		bool Load(const F4SESerializationInterface * intfc, bool isFemale, UInt32 kVersion, const std::unordered_map<UInt32, StringTableItem> & stringTable);
+		void Save(const F4SE::SerializationInterface * intfc, UInt32 kVersion);
+		bool Load(const F4SE::SerializationInterface * intfc, bool isFemale, UInt32 kVersion, const std::unordered_map<UInt32, StringTableItem> & stringTable);
 	};
 	
 	class OverlayTemplate
@@ -152,8 +141,8 @@ public:
 	typedef std::shared_ptr<OverlayTemplate> OverlayTemplatePtr;
 
 
-	virtual void Save(const F4SESerializationInterface * intfc, UInt32 kVersion);
-	virtual bool Load(const F4SESerializationInterface * intfc, UInt32 kVersion, const std::unordered_map<UInt32, StringTableItem> & stringTable);
+	virtual void Save(const F4SE::SerializationInterface * intfc, UInt32 kVersion);
+	virtual bool Load(const F4SE::SerializationInterface * intfc, UInt32 kVersion, const std::unordered_map<UInt32, StringTableItem> & stringTable);
 	virtual void Revert();
 
 	virtual void LoadOverlayMods();
@@ -188,18 +177,18 @@ public:
 
 	std::pair<SInt32, OverlayDataPtr> GetActorOverlayByUID(Actor * actor, bool isFemale, UniqueID uid);
 
-	bool HasSkinChildren(NiAVObject * slot);
+	bool HasSkinChildren(NiPointer<NiAVObject> slot);
 	void LoadMaterialData(TESNPC * npc, BSTriShape * shape, const F4EEFixedString & material, bool effect, const OverlayDataPtr & overlayData);
 
 	void DestroyOverlaySlot(Actor * actor, NiNode * overlayHolder, UInt32 slotIndex);
-	bool UpdateOverlays(Actor * actor, NiNode * rootNode, NiAVObject * object, UInt32 slotIndex);
+	bool UpdateOverlays(Actor * actor, NiNode * rootNode, NiPointer<NiAVObject> object, UInt32 slotIndex);
 
 protected:
 	friend class OverlayTemplate;
 	friend class PriorityMap;
 	friend class OverlayData;
 
-	SimpleLock												m_overlayLock;
+	std::mutex												m_overlayLock;
 	OverlayMap												m_overlays[2];
 	std::vector<UniqueID>									m_freeIndices;
 	std::unordered_map<UniqueID, OverlayDataPtr>			m_dataMap;

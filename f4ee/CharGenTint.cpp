@@ -1,63 +1,60 @@
 #include "CharGenTint.h"
-
-#include "f4se/GameAPI.h"
-#include "f4se/GameData.h"
-#include "f4se/GameRTTI.h"
-
 #include "CharGenInterface.h"
 #include "Utilities.h"
 
 #include <set>
 
-std::map<std::string, UInt32> g_flagMap;
-std::map<std::string, UInt32> g_slotMap;
-std::map<std::string, UInt32> g_blendMap;
+std::map<std::string, UInt8> g_flagMap;
+std::map<std::string, BGSCharacterTint::EntrySlot> g_slotMap;
+std::map<std::string, BGSCharacterTint::BlendOp> g_blendMap;
 
 void InitFlagMap()
 {
-	g_flagMap.emplace(std::make_pair("OnOff", (UInt32)BGSCharacterTint::Template::Entry::kFlagOnOff));
-	g_flagMap.emplace(std::make_pair("ChargenDetail", (UInt32)BGSCharacterTint::Template::Entry::kFlagChargenDetail));
-	g_flagMap.emplace(std::make_pair("TakesSkinTone", (UInt32)BGSCharacterTint::Template::Entry::kFlagTakesSkinTone));
+	g_flagMap.emplace(std::make_pair("OnOff", (UInt8)BGSCharacterTint::Template::Entry::kOnOffOnly));
+	g_flagMap.emplace(std::make_pair("ChargenDetail", (UInt8)BGSCharacterTint::Template::Entry::kIsChargenDetaul));
+	g_flagMap.emplace(std::make_pair("TakesSkinTone", (UInt8)BGSCharacterTint::Template::Entry::kTakesSkinTone));
 }
 
 void InitSlotMap()
 {
-	g_slotMap.emplace(std::make_pair("ForeheadMask", (UInt32)BGSCharacterTint::Template::Entry::kSlotForeheadMask));
-	g_slotMap.emplace(std::make_pair("EyesMask", (UInt32)BGSCharacterTint::Template::Entry::kSlotEyesMask));
-	g_slotMap.emplace(std::make_pair("NoseMask", (UInt32)BGSCharacterTint::Template::Entry::kSlotNoseMask));
-	g_slotMap.emplace(std::make_pair("EarsMask", (UInt32)BGSCharacterTint::Template::Entry::kSlotEarsMask));
-	g_slotMap.emplace(std::make_pair("CheeksMask", (UInt32)BGSCharacterTint::Template::Entry::kSlotCheeksMask));
-	g_slotMap.emplace(std::make_pair("MouthMask", (UInt32)BGSCharacterTint::Template::Entry::kSlotMouthMask));
-	g_slotMap.emplace(std::make_pair("NeckMask", (UInt32)BGSCharacterTint::Template::Entry::kSlotNeckMask));
-	g_slotMap.emplace(std::make_pair("LipColor", (UInt32)BGSCharacterTint::Template::Entry::kSlotLipColor));
-	g_slotMap.emplace(std::make_pair("CheekColor", (UInt32)BGSCharacterTint::Template::Entry::kSlotCheekColor));
-	g_slotMap.emplace(std::make_pair("Eyeliner", (UInt32)BGSCharacterTint::Template::Entry::kSlotEyeliner));
-	g_slotMap.emplace(std::make_pair("EyeSocketUpper", (UInt32)BGSCharacterTint::Template::Entry::kSlotEyeSocketUpper));
-	g_slotMap.emplace(std::make_pair("EyeSocketLower", (UInt32)BGSCharacterTint::Template::Entry::kSlotEyeSocketLower));
-	g_slotMap.emplace(std::make_pair("SkinTone", (UInt32)BGSCharacterTint::Template::Entry::kSlotSkinTone));
-	g_slotMap.emplace(std::make_pair("Paint", (UInt32)BGSCharacterTint::Template::Entry::kSlotPaint));
-	g_slotMap.emplace(std::make_pair("LaughLines", (UInt32)BGSCharacterTint::Template::Entry::kSlotLaughLines));
-	g_slotMap.emplace(std::make_pair("CheekColorLower", (UInt32)BGSCharacterTint::Template::Entry::kSlotCheekColorLower));
-	g_slotMap.emplace(std::make_pair("Nose", (UInt32)BGSCharacterTint::Template::Entry::kSlotNose));
-	g_slotMap.emplace(std::make_pair("Chin", (UInt32)BGSCharacterTint::Template::Entry::kSlotChin));
-	g_slotMap.emplace(std::make_pair("Neck", (UInt32)BGSCharacterTint::Template::Entry::kSlotNeck));
-	g_slotMap.emplace(std::make_pair("Forehead", (UInt32)BGSCharacterTint::Template::Entry::kSlotForehead));
-	g_slotMap.emplace(std::make_pair("Dirt", (UInt32)BGSCharacterTint::Template::Entry::kSlotDirt));
-	g_slotMap.emplace(std::make_pair("Scar", (UInt32)BGSCharacterTint::Template::Entry::kSlotScar));
-	g_slotMap.emplace(std::make_pair("FaceDetail", (UInt32)BGSCharacterTint::Template::Entry::kSlotFaceDetail));
-	g_slotMap.emplace(std::make_pair("Brows", (UInt32)BGSCharacterTint::Template::Entry::kSlotBrows));
+	g_slotMap.emplace(std::make_pair("ForeheadMask", BGSCharacterTint::EntrySlot::kForeheadMask));
+	g_slotMap.emplace(std::make_pair("EyesMask", BGSCharacterTint::EntrySlot::kEyesMask));
+	g_slotMap.emplace(std::make_pair("NoseMask", BGSCharacterTint::EntrySlot::kNoseMask));
+	g_slotMap.emplace(std::make_pair("EarsMask", BGSCharacterTint::EntrySlot::kEarsMask));
+	g_slotMap.emplace(std::make_pair("CheeksMask", BGSCharacterTint::EntrySlot::kCheeksMask));
+	g_slotMap.emplace(std::make_pair("MouthMask", BGSCharacterTint::EntrySlot::kMouthMask));
+	g_slotMap.emplace(std::make_pair("NeckMask", BGSCharacterTint::EntrySlot::kNeckMask));
+	g_slotMap.emplace(std::make_pair("LipColor", BGSCharacterTint::EntrySlot::kLipColor));
+	g_slotMap.emplace(std::make_pair("CheekColor", BGSCharacterTint::EntrySlot::kCheekColor));
+	g_slotMap.emplace(std::make_pair("Eyeliner", BGSCharacterTint::EntrySlot::kEyeliner));
+	g_slotMap.emplace(std::make_pair("EyeSocketUpper", BGSCharacterTint::EntrySlot::kEyeSocketUpper));
+	g_slotMap.emplace(std::make_pair("EyeSocketLower", BGSCharacterTint::EntrySlot::kEyeSocketLower));
+	g_slotMap.emplace(std::make_pair("SkinTone", BGSCharacterTint::EntrySlot::kSkinTone));
+	g_slotMap.emplace(std::make_pair("Paint", BGSCharacterTint::EntrySlot::kPaint));
+	g_slotMap.emplace(std::make_pair("LaughLines", BGSCharacterTint::EntrySlot::kLaughLines));
+	g_slotMap.emplace(std::make_pair("CheekColorLower", BGSCharacterTint::EntrySlot::kCheekColorLower));
+	g_slotMap.emplace(std::make_pair("Nose", BGSCharacterTint::EntrySlot::kNose));
+	g_slotMap.emplace(std::make_pair("Chin", BGSCharacterTint::EntrySlot::kChin));
+	g_slotMap.emplace(std::make_pair("Neck", BGSCharacterTint::EntrySlot::kNeck));
+	g_slotMap.emplace(std::make_pair("Forehead", BGSCharacterTint::EntrySlot::kForehead));
+	g_slotMap.emplace(std::make_pair("Dirt", BGSCharacterTint::EntrySlot::kDirt));
+	g_slotMap.emplace(std::make_pair("Scar", BGSCharacterTint::EntrySlot::kScars));
+	g_slotMap.emplace(std::make_pair("FaceDetail", BGSCharacterTint::EntrySlot::kFaceDetail));
+	g_slotMap.emplace(std::make_pair("Brows", BGSCharacterTint::EntrySlot::kBrow));
+	g_slotMap.emplace(std::make_pair("Wrinkles", BGSCharacterTint::EntrySlot::kWrinkles));
+	g_slotMap.emplace(std::make_pair("Beard", BGSCharacterTint::EntrySlot::kBeard));
 }
 
 void InitBlendMap()
 {
-	g_blendMap.emplace(std::make_pair("Default", (UInt32)BGSCharacterTint::Template::Entry::kBlendOpDefault));
-	g_blendMap.emplace(std::make_pair("Multiply", (UInt32)BGSCharacterTint::Template::Entry::kBlendOpMultiply));
-	g_blendMap.emplace(std::make_pair("Overlay", (UInt32)BGSCharacterTint::Template::Entry::kBlendOpOverlay));
-	g_blendMap.emplace(std::make_pair("SoftLight", (UInt32)BGSCharacterTint::Template::Entry::kBlendOpSoftLight));
-	g_blendMap.emplace(std::make_pair("HardLight", (UInt32)BGSCharacterTint::Template::Entry::kBlendOpHardLight));
+	g_blendMap.emplace(std::make_pair("Default", BGSCharacterTint::BlendOp::kDefault));
+	g_blendMap.emplace(std::make_pair("Multiply", BGSCharacterTint::BlendOp::kMultiply));
+	g_blendMap.emplace(std::make_pair("Overlay", BGSCharacterTint::BlendOp::kOverlay));
+	g_blendMap.emplace(std::make_pair("SoftLight", BGSCharacterTint::BlendOp::kSoftLight));
+	g_blendMap.emplace(std::make_pair("HardLight", BGSCharacterTint::BlendOp::kHardLight));
 }
 
-UInt32 CharGenTintObject::ParseSlot(const std::string & slotName)
+BGSCharacterTint::EntrySlot CharGenTintObject::ParseSlot(const std::string & slotName)
 {
 	if(g_slotMap.empty())
 		InitSlotMap();
@@ -69,10 +66,10 @@ UInt32 CharGenTintObject::ParseSlot(const std::string & slotName)
 	}
 
 	_ERROR("Unknown slot name: %s", slotName.c_str());
-	return BGSCharacterTint::Template::Entry::kSlotFaceDetail;
+	return BGSCharacterTint::EntrySlot::kFaceDetail;
 }
 
-std::string CharGenTintObject::WriteSlot(UInt32 slotId)
+std::string CharGenTintObject::WriteSlot(BGSCharacterTint::EntrySlot slotId)
 {
 	if(g_slotMap.empty())
 		InitSlotMap();
@@ -88,7 +85,7 @@ std::string CharGenTintObject::WriteSlot(UInt32 slotId)
 	return "";
 }
 
-UInt32 CharGenTintObject::ParseBlendOp(const std::string & blendName)
+RE::BGSCharacterTint::BlendOp CharGenTintObject::ParseBlendOp(const std::string & blendName)
 {
 	if(g_blendMap.empty())
 		InitBlendMap();
@@ -100,10 +97,10 @@ UInt32 CharGenTintObject::ParseBlendOp(const std::string & blendName)
 	}
 
 	_ERROR("Unknown blend operation: %s", blendName.c_str());
-	return BGSCharacterTint::Template::Entry::kBlendOpDefault;
+	return BGSCharacterTint::BlendOp::kDefault;
 }
 
-std::string CharGenTintObject::WriteBlendOp(UInt32 blendOp)
+std::string CharGenTintObject::WriteBlendOp(BGSCharacterTint::BlendOp blendOp)
 {
 	if(g_blendMap.empty())
 		InitBlendMap();
@@ -149,16 +146,16 @@ void CharGenTintObject::WriteFlags(UInt32 flags, Json::Value & value)
 	}
 }
 
-void CharGenTintObject::ForEachGender(const TESRace * race, UInt8 gender, std::function<void(tArray<CharacterCreation::TintData *>*, UInt8)> func)
+void CharGenTintObject::ForEachGender(const TESRace * race, UInt8 gender, std::function<void(BGSCharacterTint::Template::Groups *, UInt8)> func)
 {
 	if(gender == 2)
 	{
 		for(UInt8 i = 0; i <= 1; i++)
 		{
-			auto chargenData = race->chargenData[i];
+			auto chargenData = race->faceRelatedData[i];
 			if(chargenData)
 			{
-				auto tints = chargenData->tintData;
+				auto tints = chargenData->tintingTemplate;
 				if(tints)
 				{
 					func(tints, i);
@@ -168,10 +165,10 @@ void CharGenTintObject::ForEachGender(const TESRace * race, UInt8 gender, std::f
 	}
 	else
 	{
-		auto chargenData = race->chargenData[gender];
+		auto chargenData = race->faceRelatedData[gender];
 		if(chargenData)
 		{
-			auto tints = chargenData->tintData;
+			auto tints = chargenData->tintingTemplate;
 			if(tints)
 			{
 				func(tints, gender);
@@ -180,66 +177,60 @@ void CharGenTintObject::ForEachGender(const TESRace * race, UInt8 gender, std::f
 	}
 }
 
-CharacterCreation::TintData * CharGenTintObject::GetCategoryByName(const tArray<CharacterCreation::TintData*> * data, const char * name)
+BGSCharacterTint::Template::Group * CharGenTintObject::GetCategoryByName(const BGSCharacterTint::Template::Groups * data, const char * name)
 {
-	for(UInt32 i = 0; i < data->count; i++)
+	for(BGSCharacterTint::Template::Group * tintData : data->groups)
 	{
-		CharacterCreation::TintData * tintData;
-		data->GetNthItem(i, tintData);
-		if(_stricmp(tintData->category.c_str(), name) == 0)
+		if(_stricmp(tintData->name.c_str(), name) == 0)
 			return tintData;
 	}
 
 	return nullptr;
 }
 
-CharacterCreation::TintData * CharGenTintObject::GetCategoryByID(const tArray<CharacterCreation::TintData*> * data, UInt32 id)
+BGSCharacterTint::Template::Group * CharGenTintObject::GetCategoryByID(const BGSCharacterTint::Template::Groups * data, UInt32 id)
 {
-	for(UInt32 i = 0; i < data->count; i++)
+	for(BGSCharacterTint::Template::Group * tintData : data->groups)
 	{
-		CharacterCreation::TintData * tintData;
-		data->GetNthItem(i, tintData);
-		if(tintData->type == id)
+		if(tintData->chargenIndex == id)
 			return tintData;
 	}
 
 	return nullptr;
 }
 
-BGSCharacterTint::Template::Entry * CharGenTintObject::GetTemplateByID(const tArray<BGSCharacterTint::Template::Entry*> * data, UInt32 id)
+BGSCharacterTint::Template::Entry * CharGenTintObject::GetTemplateByID(const BSTArray<BGSCharacterTint::Template::Entry*> * data, UInt32 id)
 {
-	for(UInt32 i = 0; i < data->count; i++)
+	for(BGSCharacterTint::Template::Entry * tintData : *data)
 	{
-		BGSCharacterTint::Template::Entry * tintData;
-		data->GetNthItem(i, tintData);
-		if(tintData->templateIndex == id)
+		if(tintData->uniqueID == id)
 			return tintData;
 	}
 
 	return nullptr;
 }
 
-CharacterCreation::TintData * CharGenTintObject::CreateCategory()
+BGSCharacterTint::Template::Group * CharGenTintObject::CreateCategory()
 {
-	CharacterCreation::TintData* data = (CharacterCreation::TintData*)Heap_Allocate(sizeof(CharacterCreation::TintData));
-	memset(data, 0, sizeof(CharacterCreation::TintData));
+	BGSCharacterTint::Template::Group* data = (BGSCharacterTint::Template::Group*)Heap_Allocate(sizeof(BGSCharacterTint::Template::Group));
+	memset(data, 0, sizeof(BGSCharacterTint::Template::Group));
 	return data;
 }
 
-void CharGenTintObject::SetCategory(CharacterCreation::TintData * tintData)
+void CharGenTintObject::SetCategory(BGSCharacterTint::Template::Group * tintData)
 {
-	tintData->category = name.c_str();
-	tintData->type = categoryId;
-	tintData->unk08 = -1;
+	tintData->name = name.c_str();
+	tintData->chargenIndex = categoryId;
+	tintData->id = -1;
 }
 
 bool CharGenTintObject::Apply(const TESRace * race, UInt8 gender)
 {
 	try
 	{
-		ForEachGender(race, gender, [&](tArray<CharacterCreation::TintData *>* tints, UInt8 genderId)
+		ForEachGender(race, gender, [&](BGSCharacterTint::Template::Groups * tints, UInt8 genderId)
 		{
-			CharacterCreation::TintData * tintData = GetCategoryByID(tints, categoryId);
+			BGSCharacterTint::Template::Group * tintData = GetCategoryByID(tints, categoryId);
 			if(!tintData)
 			{
 				if(name.empty())
@@ -250,7 +241,7 @@ bool CharGenTintObject::Apply(const TESRace * race, UInt8 gender)
 
 				tintData = CreateCategory();
 				SetCategory(tintData);
-				tints->Push(tintData);
+				tints->groups.push_back(tintData);
 			}
 			else
 			{
@@ -304,7 +295,7 @@ bool CharGenTintBase::Parse(const Json::Value & entry)
 		}
 
 		if(entry.isMember("Flags")) {
-			flags = ParseFlags(entry["Flags"]);
+			flags = (UInt8)ParseFlags(entry["Flags"]);
 			modified |= kModified_Flags;
 		}
 		return true;
@@ -321,10 +312,10 @@ void CharGenTintBase::Set(BGSCharacterTint::Template::Entry* entry)
 {
 	if(IsFlagSet(kModified_Name))
 		entry->name = name.c_str();
-	entry->templateIndex = templateId;
+	const_cast<std::uint16_t&>(entry->uniqueID) = templateId;
 
 	if(IsFlagSet(kModified_Slot))
-		entry->slot = slot;
+		entry->slot = (BGSCharacterTint::EntrySlot)slot;
 
 	if(IsFlagSet(kModified_Flags))
 		entry->flags = flags;
@@ -334,9 +325,9 @@ bool CharGenTintBase::Apply(const TESRace * race, UInt8 gender)
 {
 	try
 	{
-		ForEachGender(race, gender, [&](tArray<CharacterCreation::TintData *>* tints, UInt8 genderId)
+		ForEachGender(race, gender, [&](BGSCharacterTint::Template::Groups * tints, UInt8 genderId)
 		{
-			CharacterCreation::TintData * tintData = nullptr;
+			BGSCharacterTint::Template::Group * tintData = nullptr;
 			if(categoryId != 0)
 				tintData = GetCategoryByID(tints, categoryId);
 			else
@@ -344,13 +335,13 @@ bool CharGenTintBase::Apply(const TESRace * race, UInt8 gender)
 
 			if(tintData)
 			{
-				BGSCharacterTint::Template::Entry* tintTemplate = GetTemplateByID(&tintData->entry, templateId);
+				BGSCharacterTint::Template::Entry* tintTemplate = GetTemplateByID(&tintData->entries, templateId);
 				if(!tintTemplate)
 				{
 					// Create new entry
 					tintTemplate = Create();
 					Set(tintTemplate);
-					tintData->entry.Push(tintTemplate);
+					tintData->entries.push_back(tintTemplate);
 				}
 				else
 				{
@@ -397,8 +388,8 @@ bool CharGenTintMask::Parse(const Json::Value & entry)
 
 BGSCharacterTint::Template::Entry* CharGenTintMask::Create()
 {
-	auto pMask = BGSCharacterTint::Template::Mask::Create();
-	pMask->texture = "";
+	auto pMask = new BGSCharacterTint::Template::Mask();
+	pMask->maskTextureName = "";
 	return pMask;
 }
 
@@ -406,14 +397,14 @@ void CharGenTintMask::Set(BGSCharacterTint::Template::Entry* entry)
 {
 	__super::Set(entry);
 
-	BGSCharacterTint::Template::Mask* pMask = (BGSCharacterTint::Template::Mask*)Runtime_DynamicCast(entry, RTTI_BGSCharacterTint__Template__Entry, RTTI_BGSCharacterTint__Template__Mask);
+	BGSCharacterTint::Template::Mask* pMask = (BGSCharacterTint::Template::Mask*)Runtime_DynamicCast(entry, RTTI::BGSCharacterTint__Template__Entry, RTTI::BGSCharacterTint__Template__Mask);
 	if(pMask)
 	{
 		if(IsFlagSet(kModified_BlendOp))
-			pMask->blendOp = blendOp;
+			pMask->blendOp = (RE::BGSCharacterTint::BlendOp)blendOp;
 
 		if(IsFlagSet(kModified_Texture))
-			pMask->texture = texture.c_str();
+			pMask->maskTextureName = texture.c_str();
 	}
 }
 
@@ -432,16 +423,16 @@ bool CharGenTintPalette::Parse(const Json::Value & entry)
 		auto entries = entry["Colors"];
 		for(auto & colorEntry : entries)
 		{
-			BGSCharacterTint::Template::Palette::ColorData data;
-			memset(&data, 0, sizeof(BGSCharacterTint::Template::Palette::ColorData));
-			data.colorID = colorEntry["Id"].asUInt();
-			data.colorForm = DYNAMIC_CAST(GetFormFromIdentifier(colorEntry["Form"].asString()), TESForm, BGSColorForm);
-			data.alpha = colorEntry["Alpha"].asFloat();
+			BGSCharacterTint::Template::Palette::ColorValue data;
+			memset(&data, 0, sizeof(BGSCharacterTint::Template::Palette::ColorValue));
+			data.swatchID = colorEntry["Id"].asUInt();
+			data.color = DYNAMIC_CAST(GetFormFromIdentifier(colorEntry["Form"].asString()), TESForm, BGSColorForm);
+			data.value = colorEntry["Alpha"].asFloat();
 
 			if(colorEntry.isMember("BlendOp"))
 				data.blendOp = ParseBlendOp(colorEntry["BlendOp"].asString());
 
-			if(data.colorForm)
+			if(data.color)
 				colors.push_back(data);
 		}
 
@@ -457,8 +448,8 @@ bool CharGenTintPalette::Parse(const Json::Value & entry)
 
 BGSCharacterTint::Template::Entry* CharGenTintPalette::Create()
 {
-	auto pPalette = BGSCharacterTint::Template::Palette::Create();
-	pPalette->texture = "";
+	auto pPalette = new BGSCharacterTint::Template::Palette();
+	pPalette->maskTextureName = "";
 	return pPalette;
 }
 
@@ -466,27 +457,22 @@ void CharGenTintPalette::Set(BGSCharacterTint::Template::Entry* entry)
 {
 	__super::Set(entry);
 
-	BGSCharacterTint::Template::Palette* pPalette = (BGSCharacterTint::Template::Palette*)Runtime_DynamicCast(entry, RTTI_BGSCharacterTint__Template__Entry, RTTI_BGSCharacterTint__Template__Palette);
+	BGSCharacterTint::Template::Palette* pPalette = (BGSCharacterTint::Template::Palette*)Runtime_DynamicCast(entry, RTTI::BGSCharacterTint__Template__Entry, RTTI::BGSCharacterTint__Template__Palette);
 	if(pPalette)
 	{
 		if(IsFlagSet(kModified_Texture))
-			pPalette->texture = texture.c_str();
+			pPalette->maskTextureName = texture.c_str();
 
 		std::set<UInt16> colorIds;
-		for(UInt32 i = 0; i < pPalette->colors.count; i++)
-		{
-			BGSCharacterTint::Template::Palette::ColorData colorData;
-			pPalette->colors.GetNthItem(i, colorData);
-
-			colorIds.insert(colorData.colorID);
-		}
+		for(BGSCharacterTint::Template::Palette::ColorValue colorData : pPalette->colorValues)
+			colorIds.insert(colorData.swatchID);
 
 		// Merge new colors into the list
 		for(auto & colorData : colors)
 		{
 			// Only add color Ids not in the list
-			if(colorIds.find(colorData.colorID) == colorIds.end())
-				pPalette->colors.Push(colorData);
+			if(colorIds.find(colorData.swatchID) == colorIds.end())
+				pPalette->colorValues.push_back(colorData);
 		}
 	}
 }
@@ -538,7 +524,7 @@ bool CharGenTintTextureSet::Parse(const Json::Value & entry)
 
 BGSCharacterTint::Template::Entry* CharGenTintTextureSet::Create()
 {
-	auto textureSet = BGSCharacterTint::Template::TextureSet::Create();
+	auto textureSet = new BGSCharacterTint::Template::TextureSet();
 	textureSet->diffuse = "";
 	textureSet->normal = "";
 	textureSet->specular = "";
@@ -549,7 +535,7 @@ void CharGenTintTextureSet::Set(BGSCharacterTint::Template::Entry* entry)
 {
 	__super::Set(entry);
 
-	BGSCharacterTint::Template::TextureSet* pTextureSet = (BGSCharacterTint::Template::TextureSet*)Runtime_DynamicCast(entry, RTTI_BGSCharacterTint__Template__Entry, RTTI_BGSCharacterTint__Template__TextureSet);
+	BGSCharacterTint::Template::TextureSet* pTextureSet = (BGSCharacterTint::Template::TextureSet*)Runtime_DynamicCast(entry, RTTI::BGSCharacterTint__Template__Entry, RTTI::BGSCharacterTint__Template__TextureSet);
 	if(pTextureSet)
 	{
 		if(IsFlagSet(kModified_Diffuse))

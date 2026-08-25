@@ -1,12 +1,5 @@
 #pragma once
 
-#include "f4se/BSModelDB.h"
-#include "f4se/GameTypes.h"
-#include "f4se/GameEvents.h"
-
-#include "f4se/NiTypes.h"
-#include "f4se/NiExtraData.h"
-
 #include <memory>
 #include <vector>
 #include <string>
@@ -19,16 +12,6 @@
 #include <json/json.h>
 
 #include "StringTable.h"
-#include "f4se/PapyrusVM.h"
-#include "f4se/PapyrusUtilities.h"
-#include "f4se/GameThreads.h"
-
-#include "common/ICriticalSection.h"
-
-class Actor;
-class BGSKeyword;
-struct F4SESerializationInterface;
-class TESModel;
 
 class TriShapeVertexDelta
 {
@@ -94,7 +77,7 @@ public:
 	BodyMorphMapPtr GetMorphData(const F4EEFixedString & name);
 
 	SimpleLock	m_morphLock;
-	UInt32 memoryUsage;
+	size_t memoryUsage;
 	std::time_t accessed;
 };
 typedef std::shared_ptr<TriShapeMap> TriShapeMapPtr;
@@ -122,8 +105,8 @@ typedef std::shared_ptr<UserValues> UserValuesPtr;
 class MorphValueMap : public std::unordered_map<StringTableItem, UserValuesPtr>
 {
 public:
-	void Save(const F4SESerializationInterface * intfc, UInt32 kVersion);
-	bool Load(const F4SESerializationInterface * intfc, UInt32 kVersion, const std::unordered_map<UInt32, StringTableItem> & stringTable);
+	void Save(const F4SE::SerializationInterface * intfc, UInt32 kVersion);
+	bool Load(const F4SE::SerializationInterface * intfc, UInt32 kVersion, const std::unordered_map<UInt32, StringTableItem> & stringTable);
 
 	void SetMorph(const BSFixedString &morph, BGSKeyword * keyword, float value);
 	float GetMorph(const BSFixedString & morph, BGSKeyword * keyword);
@@ -172,7 +155,7 @@ public:
 	F4EEFixedString			shapeName;
 };
 
-class F4EEBodyGenUpdate : public ITaskDelegate
+class F4EEBodyGenUpdate : public F4SE::ITaskDelegate
 {
 public:
 	F4EEBodyGenUpdate(TESForm * form, bool doDetach);
@@ -189,9 +172,8 @@ class BodyMorphProcessor : public BSModelDB::BSModelProcessor
 public:
 	BodyMorphProcessor(BSModelDB::BSModelProcessor * oldProcessor) : m_oldProcessor(oldProcessor) { }
 
-	virtual void Process(BSModelDB::ModelData * modelData, const char * modelName, NiAVObject ** root, UInt32 * typeOut);
-
-	DEFINE_STATIC_HEAP(Heap_Allocate, Heap_Free)
+	F4_HEAP_REDEFINE_NEW(F4EETransformUpdate);
+	virtual void Process(BSModelDB::ModelData * modelData, const char * modelName, NiAVObject ** root, std::uint32_t * typeOut);
 
 protected:
 	BSModelDB::BSModelProcessor	* m_oldProcessor;
@@ -209,8 +191,8 @@ public:
 		kSerializationVersion = kVersion2,
 	};
 
-	virtual void Save(const F4SESerializationInterface * intfc, UInt32 kVersion);
-	virtual bool Load(const F4SESerializationInterface * intfc, bool isFemale, UInt32 kVersion, const std::unordered_map<UInt32, StringTableItem> & stringTable);
+	virtual void Save(const F4SE::SerializationInterface * intfc, UInt32 kVersion);
+	virtual bool Load(const F4SE::SerializationInterface * intfc, bool isFemale, UInt32 kVersion, const std::unordered_map<UInt32, StringTableItem> & stringTable);
 	virtual void Revert();
 
 	virtual void LoadBodyGenSliderMods();
@@ -235,15 +217,15 @@ public:
 	// Not a deep copy, will be a shallow copy, editing on the target edits on the source
 	virtual void CloneMorphs(Actor * source, Actor * target);
 
-	virtual void GetMorphableShapes(NiAVObject * node, std::vector<MorphableShape> & shapes);
+	virtual void GetMorphableShapes(NiPointer<NiAVObject> node, std::vector<MorphableShape> & shapes);
 	virtual bool ApplyMorphsToShapes(Actor * actor, NiAVObject * slotNode);
 	virtual bool ApplyMorphsToShape(Actor * actor, const MorphableShape& morphableShape);
 	virtual bool UpdateMorphs(Actor * actor);
 
-	bool IsNodeMorphable(NiAVObject * rootNode);
+	bool IsNodeMorphable(NiPointer<NiAVObject> rootNode);
 
 	void ShrinkMorphCache();
-	void SetCacheLimit(UInt64 limit);
+	void SetCacheLimit(size_t limit);
 	void SetModelProcessor();
 
 private:
@@ -252,8 +234,8 @@ private:
 
 	SimpleLock											m_morphCacheLock;
 	std::unordered_map<F4EEFixedString, TriShapeMapPtr>	m_morphCache;
-	UInt64												m_totalMemory;
-	UInt64												m_memoryLimit;
+	size_t												m_totalMemory;
+	size_t												m_memoryLimit;
 
 	std::unordered_map<F4EEFixedString, BodySliderPtr>	m_sliderMap[2];
 };

@@ -1,12 +1,11 @@
 #pragma once
 
-#include "f4se/GameAPI.h"
 
 template<class T>
 class BSTArrayFunctor
 {
 public:
-        BSTArrayFunctor(tArray<T> * arr, UInt32 growSize = 10, UInt32 shrinkSize = 10) : m_array(arr)
+        BSTArrayFunctor(BSTArray<T> * arr, UInt32 growSize = 10, UInt32 shrinkSize = 10) : m_array(arr)
         {
                 m_growSize = growSize;
                 if(m_growSize == 0)
@@ -162,7 +161,7 @@ public:
         };
  
 private:
-        tArray<T> * m_array;
+        BSTArray<T> * m_array;
         UInt32  m_growSize;
         UInt32  m_shrinkSize;
 };

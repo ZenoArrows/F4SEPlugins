@@ -4,13 +4,7 @@
 #include <functional>
 
 #include "StringTable.h"
-#include "f4se/NiTypes.h"
-#include "f4se/GameThreads.h"
-#include "f4se/BSModelDB.h"
 
-class Actor;
-class BGSKeyword;
-class NiAVObject;
 
 class TransformData
 {
@@ -28,20 +22,20 @@ public:
 	};
 
 	bool IsEmpty() const { return mFlags == kProperty_None; }
-	void SetX(float x) { if (x != 0.0f) { SetFlag(kProperty_X); } else { ClearFlag(kProperty_X); } mTransform.pos.x = x; }
-	void SetY(float y) { if (y != 0.0f) { SetFlag(kProperty_Y); } else { ClearFlag(kProperty_Y); } mTransform.pos.y = y; }
-	void SetZ(float z) { if (z != 0.0f) { SetFlag(kProperty_Z); } else { ClearFlag(kProperty_Z); } mTransform.pos.z = z; }
-	void SetRotation(float pitch, float roll, float yaw) { if (pitch != 0.0f || roll != 0.0f || yaw != 0.0f) { SetFlag(kProperty_Rot); } else { ClearFlag(kProperty_Rot); } mTransform.rot.SetEulerAngles(pitch, roll, yaw); }
+	void SetX(float x) { if (x != 0.0f) { SetFlag(kProperty_X); } else { ClearFlag(kProperty_X); } mTransform.translate.x = x; }
+	void SetY(float y) { if (y != 0.0f) { SetFlag(kProperty_Y); } else { ClearFlag(kProperty_Y); } mTransform.translate.y = y; }
+	void SetZ(float z) { if (z != 0.0f) { SetFlag(kProperty_Z); } else { ClearFlag(kProperty_Z); } mTransform.translate.z = z; }
+	void SetRotation(float pitch, float roll, float yaw) { if (pitch != 0.0f || roll != 0.0f || yaw != 0.0f) { SetFlag(kProperty_Rot); } else { ClearFlag(kProperty_Rot); } mTransform.rotate.FromEulerAnglesXYZ(pitch, roll, yaw); }
 	void SetScale(float scale) { if (scale != 0.0f) { SetFlag(kProperty_Scale); } else { ClearFlag(kProperty_Scale); } mTransform.scale = scale; }
 
 	NiTransform & GetTransform() { return mTransform; }
 
 	void UpdateFlags()
 	{
-		if (mTransform.pos.x != 0.0f) { SetFlag(kProperty_X); } else { ClearFlag(kProperty_X); }
-		if (mTransform.pos.y != 0.0f) { SetFlag(kProperty_Y); } else { ClearFlag(kProperty_Y); }
-		if (mTransform.pos.z != 0.0f) { SetFlag(kProperty_Z); } else { ClearFlag(kProperty_Z); }
-		bool isNonZero = false; for (int i = 0; i < 3 && !isNonZero; ++i) { for (int j = 0; j < 3 && !isNonZero; ++j) { if (mTransform.rot.data[i][j] != 0.0f) { isNonZero = true; break; } } }
+		if (mTransform.translate.x != 0.0f) { SetFlag(kProperty_X); } else { ClearFlag(kProperty_X); }
+		if (mTransform.translate.y != 0.0f) { SetFlag(kProperty_Y); } else { ClearFlag(kProperty_Y); }
+		if (mTransform.translate.z != 0.0f) { SetFlag(kProperty_Z); } else { ClearFlag(kProperty_Z); }
+		bool isNonZero = false; for (int i = 0; i < 3 && !isNonZero; ++i) { for (int j = 0; j < 3 && !isNonZero; ++j) { if (mTransform.rotate[i][j] != 0.0f) { isNonZero = true; break; } } }
 		if (isNonZero) { SetFlag(kProperty_Rot); } else { ClearFlag(kProperty_Rot); }
 		if (mTransform.scale != 0.0f) { SetFlag(kProperty_Scale); } else { ClearFlag(kProperty_Scale); }
 	}
@@ -150,7 +144,7 @@ public:
 	bool IsEmpty() const { return empty(); }
 };
 
-class F4EETransformUpdate : public ITaskDelegate
+class F4EETransformUpdate : public F4SE::ITaskDelegate
 {
 public:
 	F4EETransformUpdate(TESForm * form);
@@ -176,9 +170,8 @@ class TransformProcessor : public BSModelDB::BSModelProcessor
 public:
 	TransformProcessor(BSModelDB::BSModelProcessor * oldProcessor) : m_oldProcessor(oldProcessor) { }
 
-	virtual void Process(BSModelDB::ModelData * modelData, const char * modelName, NiAVObject ** root, UInt32 * typeOut);
-
-	DEFINE_STATIC_HEAP(Heap_Allocate, Heap_Free)
+	F4_HEAP_REDEFINE_NEW(F4EETransformUpdate);
+	virtual void Process(BSModelDB::ModelData * modelData, const char * modelName, NiAVObject ** root, std::uint32_t * typeOut);
 
 protected:
 	BSModelDB::BSModelProcessor	* m_oldProcessor;

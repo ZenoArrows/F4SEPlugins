@@ -4,9 +4,6 @@
 #include "OverlayInterface.h"
 #include "SkinInterface.h"
 
-#include "f4se/GameRTTI.h"
-#include "f4se/GameObjects.h"
-#include "f4se/GameReferences.h"
 
 extern BodyGenInterface		g_bodyGenInterface;
 extern BodyMorphInterface	g_bodyMorphInterface;
@@ -18,30 +15,30 @@ extern bool g_bEnableBodyMorphs;
 extern bool g_bEnableOverlays;
 extern bool g_bEnableSkinOverrides;
 
-EventResult	ActorUpdateManager::ReceiveEvent(TESObjectLoadedEvent * evn, void * dispatcher)
+BSEventNotifyControl	ActorUpdateManager::ProcessEvent(const TESObjectLoadedEvent & evn, BSTEventSource<TESObjectLoadedEvent> * dispatcher)
 {
-	if(evn->loaded)
+	if(evn.loaded)
 	{
 		// We need to collect pending loads because these will fire before the load game event
-		TESForm * form = LookupFormByID(evn->formId);
+		TESForm * form = LookupFormByID(evn.formID);
 		if(!form)
-			return kEvent_Continue;
+			return BSEventNotifyControl::kContinue;
 
 		Actor * actor = DYNAMIC_CAST(form, TESForm, Actor);
 		if(!actor)
-			return kEvent_Continue;
+			return BSEventNotifyControl::kContinue;
 
-		TESNPC * npc =  DYNAMIC_CAST(actor->baseForm, TESForm, TESNPC);
+		TESNPC * npc =  DYNAMIC_CAST(actor->data.objectReference, TESForm, TESNPC);
 		if(!npc)
-			return kEvent_Continue;
+			return BSEventNotifyControl::kContinue;
 
-		UInt64 gender = CALL_MEMBER_FN(npc, GetSex)();
-		bool isFemale = gender == 1 ? true : false;
+		SEX gender = CALL_MEMBER_FN(npc, GetSex)();
+		bool isFemale = gender == SEX::kFemale ? true : false;
 
 		m_pendingLock.Lock();
 		if(m_loading) // We're mid-load, lets just push these to pending
 		{
-			m_pendingActors.insert((gender << 32) | form->formID);
+			m_pendingActors.insert(((UInt64)gender << 32) | form->formID);
 		}
 		else
 		{
@@ -68,26 +65,26 @@ EventResult	ActorUpdateManager::ReceiveEvent(TESObjectLoadedEvent * evn, void * 
 		m_pendingLock.Release();
 	}
 
-	return kEvent_Continue;
+	return BSEventNotifyControl::kContinue;
 };
 
-EventResult	ActorUpdateManager::ReceiveEvent(TESInitScriptEvent * evn, void * dispatcher)
+BSEventNotifyControl	ActorUpdateManager::ProcessEvent(const TESInitScriptEvent & evn, BSTEventSource<TESInitScriptEvent> * dispatcher)
 {
 	// Don't do any generation if BodyGen not enabled
 	if(!g_bEnableBodygen)
-		return kEvent_Continue;
+		return BSEventNotifyControl::kContinue;
 
 	// We need to collect pending loads because these will fire before the load game event
-	Actor * actor = DYNAMIC_CAST(evn->reference, TESForm, Actor);
+	Actor * actor = DYNAMIC_CAST(evn.hObjectInitialized, TESForm, Actor);
 	if(!actor)
-		return kEvent_Continue;
+		return BSEventNotifyControl::kContinue;
 
-	TESNPC * npc =  DYNAMIC_CAST(actor->baseForm, TESForm, TESNPC);
+	TESNPC * npc =  DYNAMIC_CAST(actor->data.objectReference, TESForm, TESNPC);
 	if(!npc)
-		return kEvent_Continue;
+		return BSEventNotifyControl::kContinue;
 
-	UInt64 gender = CALL_MEMBER_FN(npc, GetSex)();
-	bool isFemale = gender == 1 ? true : false;
+	SEX gender = CALL_MEMBER_FN(npc, GetSex)();
+	bool isFemale = gender == SEX::kFemale ? true : false;
 
 	if(!m_loading)
 	{
@@ -99,7 +96,7 @@ EventResult	ActorUpdateManager::ReceiveEvent(TESInitScriptEvent * evn, void * di
 				g_bodyMorphInterface.UpdateMorphs(actor);
 		}
 	}
-	return kEvent_Continue;
+	return BSEventNotifyControl::kContinue;
 }
 
 void ActorUpdateManager::ResolvePendingBodyGen()
@@ -110,12 +107,11 @@ void ActorUpdateManager::ResolvePendingBodyGen()
 		m_pendingLock.Lock();
 		for(auto & uid : m_pendingActors)
 		{
-			UInt8 gender = uid >> 32;
 			UInt32 formID = uid & 0xFFFFFFFF;
-			bool isFemale = gender == 1 ? true : false;
+			bool isFemale = uid & (1LL << 32) ? true : false;
 
 			TESForm * form = LookupFormByID(formID);
-			if(form && form->formType == Actor::kTypeID)
+			if(form && form->formType == Actor::FORM_ID)
 			{
 				Actor * actor = static_cast<Actor*>(form);
 				auto morphMap = g_bodyMorphInterface.GetMorphMap(actor, isFemale);
@@ -132,13 +128,13 @@ void ActorUpdateManager::ResolvePendingBodyGen()
 	}
 }
 
-EventResult ActorUpdateManager::ReceiveEvent(TESLoadGameEvent * evn, void * dispatcher)
+BSEventNotifyControl ActorUpdateManager::ProcessEvent(const TESLoadGameEvent & evn, BSTEventSource<TESLoadGameEvent> * dispatcher)
 {
 	if(m_loading)
 		m_loading = false;
 
 	Flush();
-	return kEvent_Continue;
+	return BSEventNotifyControl::kContinue;
 }
 
 void ActorUpdateManager::Flush()
@@ -146,8 +142,8 @@ void ActorUpdateManager::Flush()
 	m_pendingLock.Lock();
 	for(auto & uid : m_pendingUpdates)
 	{
-		TESForm * form = LookupFormByID(uid);
-		if(form && form->formType == Actor::kTypeID)
+		TESForm * form = LookupFormByID((UInt32)uid);
+		if(form && form->formType == Actor::FORM_ID)
 		{
 			Actor * actor = static_cast<Actor*>(form);
 			if(g_bEnableSkinOverrides)

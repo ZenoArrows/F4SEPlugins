@@ -126,7 +126,7 @@ public:
 		root = nullptr;
 	}
 
-	int kd_nn(Morpher::Vector3* querypoint, float radius) {
+	size_t kd_nn(Morpher::Vector3* querypoint, float radius) {
 		float mindist = FLT_MAX;
 		if (radius != 0.0f)
 			mindist = radius;

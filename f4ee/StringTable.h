@@ -5,9 +5,7 @@
 #include <algorithm>
 #include <string>
 
-#include "f4se/GameTypes.h"
-
-struct F4SESerializationInterface;
+#include "Utilities.h"
 
 // Class is similar to BSFixedString, it is meant to not interfere with base game string caching when loading data early on
 class F4EEFixedString
@@ -29,7 +27,7 @@ public:
 		return false;
 	}
 
-	UInt32 length() { return m_internal.size(); }
+	UInt32 length() { return (UInt32)m_internal.size(); }
 
 	operator BSFixedString() const { return BSFixedString(m_internal.c_str()); }
 	BSFixedString AsBSFixedString() const { return operator BSFixedString(); }
@@ -90,8 +88,8 @@ public:
 		kSerializationVersion = 1,
 	};
 
-	void Save(const F4SESerializationInterface * intfc, UInt32 kVersion);
-	bool Load(const F4SESerializationInterface * intfc, UInt32 kVersion, std::unordered_map<UInt32, StringTableItem> & stringTable);
+	void Save(const F4SE::SerializationInterface * intfc, UInt32 kVersion);
+	bool Load(const F4SE::SerializationInterface * intfc, UInt32 kVersion, std::unordered_map<UInt32, StringTableItem> & stringTable);
 	void Revert();
 
 	StringTableItem GetString(const F4EEFixedString & str);

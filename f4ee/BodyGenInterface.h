@@ -1,11 +1,7 @@
 #pragma once
 
-#include "f4se/GameTypes.h"
 #include "StringTable.h"
 
-class TESNPC;
-class Actor;
-class TESRace;
 
 #include <vector>
 #include <unordered_map>
@@ -72,7 +68,7 @@ public:
 		bodyGenData[1].clear();
 	}
 
-	void GetFilteredNPCList(std::vector<TESNPC*> activeNPCs[], UInt8 modIndex, UInt16 lightIndex, UInt32 gender, TESRace * raceFilter);
+	void GetFilteredNPCList(std::vector<TESNPC*> activeNPCs[], std::optional<std::uint8_t> modIndex, std::optional<std::uint16_t> lightIndex, std::optional<std::uint8_t> gender, TESRace * raceFilter);
 
 
 protected:

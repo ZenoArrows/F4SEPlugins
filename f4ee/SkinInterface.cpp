@@ -1,24 +1,18 @@
 #include "SkinInterface.h"
-
+#include "ActorUpdateManager.h"
 #include "Utilities.h"
 
 #include "json/json.h"
-#include "common/IDirectoryIterator.h"
 #include <set>
 
-#include "f4se/GameData.h"
-#include "f4se/GameForms.h"
-#include "f4se/GameRTTI.h"
-#include "f4se/GameStreams.h"
-#include "f4se/GameReferences.h"
-
-#include "ActorUpdateManager.h"
+using namespace REX::W32;
+#include "common/IDirectoryIterator.h"
 
 extern SkinInterface g_skinInterface;
 extern ActorUpdateManager g_actorUpdateManager;
 extern StringTable g_stringTable;
 
-extern F4SETaskInterface			* g_task;
+extern const F4SE::TaskInterface			* g_task;
 
 F4EESkinUpdate::F4EESkinUpdate(TESForm * form, bool doFace)
 {
@@ -36,17 +30,17 @@ void F4EESkinUpdate::Run()
 	if(!actor)
 		return;
 
-	TESNPC * npc =  DYNAMIC_CAST(actor->baseForm, TESForm, TESNPC);
+	TESNPC * npc =  DYNAMIC_CAST(actor->data.objectReference, TESForm, TESNPC);
 	if(!npc)
 		return;
 
-	UInt32 updateFlags = g_skinInterface.ApplyOverride(actor, npc, m_doFace);
-	if (updateFlags != 0)
+	RESET_3D_FLAGS updateFlags = g_skinInterface.ApplyOverride(actor, npc, m_doFace);
+	if ((std::int32_t)updateFlags != 0)
 	{
-		auto middleProcess = actor->middleProcess;
-		if (middleProcess) {
-			middleProcess->Set3DUpdateFlag(updateFlags);
-			middleProcess->Update3DModel(actor, true);
+		auto currentProcess = actor->currentProcess;
+		if (currentProcess) {
+			currentProcess->Set3DUpdateFlag(updateFlags);
+			currentProcess->Update3DModel(actor, true);
 		}
 	}
 }
@@ -77,7 +71,7 @@ bool SkinInterface::AddSkinOverride(Actor * actor, const F4EEFixedString & id, b
 	if(!actor)
 		return false;
 
-	TESNPC * npc =  DYNAMIC_CAST(actor->baseForm, TESForm, TESNPC);
+	TESNPC * npc =  DYNAMIC_CAST(actor->data.objectReference, TESForm, TESNPC);
 	if(!npc)
 		return false;
 
@@ -90,7 +84,7 @@ bool SkinInterface::AddSkinOverride(Actor * actor, const F4EEFixedString & id, b
 		m_skinBackup.Lock();
 		auto bit = m_skinBackup.m_data.find(actor->formID);
 		if(bit == m_skinBackup.m_data.end()) {
-			m_skinBackup.m_data.emplace(npc->formID, npc->skinForm.skin ? npc->skinForm.skin->formID : 0);
+			m_skinBackup.m_data.emplace(npc->formID, npc->formSkin ? npc->formSkin->formID : 0);
 		}
 		m_skinBackup.Release();
 
@@ -100,7 +94,7 @@ bool SkinInterface::AddSkinOverride(Actor * actor, const F4EEFixedString & id, b
 		m_faceBackup[gender].Lock();
 		auto fit = m_faceBackup[gender].m_data.find(npc->formID);
 		if(fit == m_faceBackup[gender].m_data.end()) {
-			m_faceBackup[gender].m_data.emplace(npc->formID, npc->headData && npc->headData->faceTextures ? npc->headData->faceTextures->formID : 0);
+			m_faceBackup[gender].m_data.emplace(npc->formID, npc->headRelatedData && npc->headRelatedData->faceDetails ? npc->headRelatedData->faceDetails->formID : 0);
 		}
 		m_faceBackup[gender].Release();*/
 
@@ -139,10 +133,10 @@ BGSTextureSet * SkinInterface::GetBackupFace(Actor * actor, TESNPC * npc, bool i
 		// Revert to the backup if we remove the override
 		UInt8 gender = isFemale ? 1 : 0;
 
-		BGSHeadPart * facePart = npc->GetHeadPartByType(BGSHeadPart::kTypeFace);
+		BGSHeadPart * facePart = npc->GetHeadPartByType(BGSHeadPart::HeadPartType::kFace);
 		if(facePart) {
 			if(!facePart->textureSet) {
-				facePart = GetBackupHeadPart(actor, npc, isFemale, BGSHeadPart::kTypeFace);
+				facePart = GetBackupHeadPart(actor, npc, isFemale, BGSHeadPart::HeadPartType::kFace);
 			}
 
 			if(facePart)
@@ -163,16 +157,16 @@ BGSTextureSet * SkinInterface::GetBackupFace(Actor * actor, TESNPC * npc, bool i
 	return faceTexture;
 }
 
-BGSHeadPart * SkinInterface::GetBackupHeadPart(Actor * actor, TESNPC * npc, bool isFemale, UInt32 partType)
+BGSHeadPart * SkinInterface::GetBackupHeadPart(Actor * actor, TESNPC * npc, bool isFemale, BGSHeadPart::HeadPartType partType)
 {
 	TESRace * race = actor->race;
 	if(!race)
-		race = npc->race.race;
+		race = npc->formRace;
 
 	if(!race)
 		return nullptr;
 
-	auto chargenData = race->chargenData[isFemale ? 1 : 0];
+	auto chargenData = race->faceRelatedData[isFemale ? 1 : 0];
 	if(!chargenData)
 		return nullptr;
 
@@ -180,10 +174,8 @@ BGSHeadPart * SkinInterface::GetBackupHeadPart(Actor * actor, TESNPC * npc, bool
 	if(!headParts)
 		return nullptr;
 
-	for(UInt32 i = 0; i < headParts->count; i++)
+	for(BGSHeadPart * headPart : *headParts)
 	{
-		BGSHeadPart * headPart;
-		headParts->GetNthItem(i, headPart);
 		if(headPart->type == partType)
 			return headPart;
 	}
@@ -247,10 +239,10 @@ SkinTemplatePtr SkinInterface::GetSkinTemplate(Actor * actor)
 	return nullptr;
 }
 
-UInt32 SkinInterface::ApplyOverride(Actor* actor, TESNPC* npc, bool doFace)
+RESET_3D_FLAGS SkinInterface::ApplyOverride(Actor* actor, TESNPC* npc, bool doFace)
 {
-	UInt64 gender = CALL_MEMBER_FN(npc, GetSex)();
-	bool isFemale = gender == 1 ? true : false;
+	SEX gender = CALL_MEMBER_FN(npc, GetSex)();
+	bool isFemale = gender == SEX::kFemale ? true : false;
 
 	BGSTextureSet* faceTexture = nullptr;
 	TESObjectARMO* skinArmor = nullptr;
@@ -267,8 +259,8 @@ UInt32 SkinInterface::ApplyOverride(Actor* actor, TESNPC* npc, bool doFace)
 
 	// We have a new texture to assign, create head data if we don't have one
 	if (doFace && faceTexture) {
-		if (!npc->headData)
-			npc->headData = new TESNPC::HeadData();
+		if (!npc->headRelatedData)
+			npc->headRelatedData = new TESNPC::HeadRelatedData();
 	}
 
 	bool faceBackupExists = false;
@@ -276,88 +268,88 @@ UInt32 SkinInterface::ApplyOverride(Actor* actor, TESNPC* npc, bool doFace)
 		if (!faceTexture) // Couldn't find an override, choose the backup
 			faceTexture = GetBackupFace(actor, npc, isFemale, faceBackupExists);
 		//if(!faceTexture && !faceBackupExists) // There was no backup, lets take what the NPC has
-		//	faceTexture = npc->headData ? npc->headData->faceTextures : nullptr;
+		//	faceTexture = npc->headRelatedData ? npc->headRelatedData->faceDetails : nullptr;
 	}
 
 	bool skinBackupExists = false;
 	if (!skinArmor) // Couldn't find an override, choose the backup
 		skinArmor = GetBackupSkin(npc, skinBackupExists);
 	if (!skinArmor && !skinBackupExists) // There was no backup, lets take what the NPC has
-		skinArmor = npc->skinForm.skin;
+		skinArmor = npc->formSkin;
 
 	bool doHeadUpdate = false;
 	if (doFace) {
 		// Change the face part
-		BGSHeadPart* pCurrentHead = npc->GetHeadPartByType(BGSHeadPart::kTypeFace);
+		BGSHeadPart* pCurrentHead = npc->GetHeadPartByType(BGSHeadPart::HeadPartType::kFace);
 		if (headPart && pCurrentHead && headPart != pCurrentHead) {
-			npc->ChangeHeadPart(headPart, false, false);
+			npc->ChangeHeadPart(headPart);
 			doHeadUpdate = true;
-			npc->MarkChanged(0x800); // Save FaceData
+			npc->AddChange(0x800); // Save FaceData
 		}
 		// We changed the head rear HeadPart, we need to invoke an update
-		BGSHeadPart* pCurrentHeadRear = npc->GetHeadPartByType(BGSHeadPart::kTypeHeadRear);
+		BGSHeadPart* pCurrentHeadRear = npc->GetHeadPartByType(BGSHeadPart::HeadPartType::kHeadRear);
 		if (headRearPart && pCurrentHeadRear && headRearPart != pCurrentHeadRear) {
-			npc->ChangeHeadPart(headRearPart, false, false);
+			npc->ChangeHeadPart(headRearPart);
 			doHeadUpdate = true;
-			npc->MarkChanged(0x800); // Save FaceData
+			npc->AddChange(0x800); // Save FaceData
 		}
 	}
 
 	// We changed base face textures, clear our morph groups and do a facegen update
-	bool doFaceUpdate = doFace && npc->headData && npc->headData->faceTextures != faceTexture;
+	bool doFaceUpdate = doFace && npc->headRelatedData && npc->headRelatedData->faceDetails != faceTexture;
 	if (doFaceUpdate) {
-		npc->headData->faceTextures = faceTexture;
-		auto morphData = npc->morphSetData;
+		npc->headRelatedData->faceDetails = faceTexture;
+		auto morphData = npc->morphSliderValues;
 		if (morphData)
-			morphData->Clear();
-		npc->MarkChanged(0x800);
+			morphData->clear();
+		npc->AddChange(0x800);
 	}
 
 	// We changed the skin, assign the new skin and perform an update
-	bool doSkinUpdate = npc->skinForm.skin != skinArmor;
+	bool doSkinUpdate = npc->formSkin != skinArmor;
 	if (doSkinUpdate) {
-		npc->skinForm.skin = skinArmor;
+		npc->formSkin = skinArmor;
 	}
 
-	UInt32 updateFlags = 0;
+	REX::TEnumSet<RESET_3D_FLAGS, std::uint32_t> updateFlags;
 	if (doSkinUpdate)
-		updateFlags |= Actor::AIProcess::RESET_SKIN | Actor::AIProcess::RESET_MODEL;
+		updateFlags |= RESET_3D_FLAGS::kSkin | RESET_3D_FLAGS::kModel;
 	if (doFaceUpdate)
-		updateFlags |= Actor::AIProcess::RESET_FACE;
+		updateFlags |= RESET_3D_FLAGS::kFace;
 	if (doHeadUpdate)
-		updateFlags |= Actor::AIProcess::RESET_HEAD;
+		updateFlags |= RESET_3D_FLAGS::kHead;
 	else if (doSkinUpdate || doFaceUpdate)
-		updateFlags |= Actor::AIProcess::RESET_KEEP_HEAD;
-	return updateFlags;
+		updateFlags |= RESET_3D_FLAGS::kKeepHead;
+	return *updateFlags;
 }
 
 void SkinInterface::RevertOverride(Actor* actor, TESNPC* npc)
 {
-	UInt64 gender = CALL_MEMBER_FN(npc, GetSex)();
-	bool isFemale = gender == 1 ? true : false;
+	SEX gender = CALL_MEMBER_FN(npc, GetSex)();
+	bool isFemale = gender == SEX::kFemale ? true : false;
 
 	bool faceBackupExists = false;
 	bool skinBackupExists = false;
 	auto faceBackup = GetBackupFace(actor, npc, isFemale, faceBackupExists);
 
-	if(npc->headData)
-		npc->headData->faceTextures = faceBackup; // Backup, or null
+	if(npc->headRelatedData)
+		npc->headRelatedData->faceDetails = faceBackup; // Backup, or null
 
 	auto skinBackup = GetBackupSkin(npc, skinBackupExists);
 	if (skinBackupExists) // Backup could be null, in which case use the Race
 	{
-		if (npc->skinForm.skin != skinBackup)
-			npc->skinForm.skin = skinBackup;
+		if (npc->formSkin != skinBackup)
+			npc->formSkin = skinBackup;
 	}
 }
 
-void SkinInterface::Save(const F4SESerializationInterface * intfc, UInt32 kVersion)
+void SkinInterface::Save(const F4SE::SerializationInterface * intfc, UInt32 kVersion)
 {
 	m_skinOverride.Lock();
 	intfc->OpenRecord('SOVR', kVersion);
 
 	// Key
-	UInt32 length = m_skinOverride.m_data.size();
+	UInt32 length = (UInt32)m_skinOverride.m_data.size();
 	Serialization::WriteData<UInt32>(intfc, &length);
 
 	for(auto & ovr : m_skinOverride.m_data)
@@ -373,7 +365,7 @@ void SkinInterface::Save(const F4SESerializationInterface * intfc, UInt32 kVersi
 	m_skinOverride.Release();
 }
 
-bool SkinInterface::Load(const F4SESerializationInterface * intfc, UInt32 kVersion, const std::unordered_map<UInt32, StringTableItem> & stringTable)
+bool SkinInterface::Load(const F4SE::SerializationInterface * intfc, UInt32 kVersion, const std::unordered_map<UInt32, StringTableItem> & stringTable)
 {
 	UInt32 overrides = 0;
 	if (!Serialization::ReadData<UInt32>(intfc, &overrides))
@@ -385,9 +377,9 @@ bool SkinInterface::Load(const F4SESerializationInterface * intfc, UInt32 kVersi
 	for(UInt32 i = 0; i < overrides; i++)
 	{
 		// Key
-		UInt32 formId = 0;
-		UInt32 newFormId = 0;
-		if (!Serialization::ReadData<UInt32>(intfc, &formId))
+		std::uint32_t formId = 0;
+		std::optional<std::uint32_t> newFormId = std::nullopt;
+		if (!Serialization::ReadData<std::uint32_t>(intfc, &formId))
 		{
 			_ERROR("%s - Error loading actor formId", __FUNCTION__);
 			return false;
@@ -407,19 +399,20 @@ bool SkinInterface::Load(const F4SESerializationInterface * intfc, UInt32 kVersi
 			continue;
 		}
 
-		if(!intfc->ResolveFormId(formId, &newFormId))
+		newFormId = intfc->ResolveFormID(formId);
+		if(!newFormId)
 			continue;
 
-		Actor * actor = DYNAMIC_CAST(LookupFormByID(newFormId), TESForm, Actor);
+		Actor * actor = DYNAMIC_CAST(LookupFormByID(*newFormId), TESForm, Actor);
 		if(!actor)
 			continue;
 
-		TESNPC * npc =  DYNAMIC_CAST(actor->baseForm, TESForm, TESNPC);
+		TESNPC * npc =  DYNAMIC_CAST(actor->data.objectReference, TESForm, TESNPC);
 		if(!npc)
 			continue;
 
-		UInt64 gender = CALL_MEMBER_FN(npc, GetSex)();
-		bool isFemale = gender == 1 ? true : false;
+		SEX gender = CALL_MEMBER_FN(npc, GetSex)();
+		bool isFemale = gender == SEX::kFemale ? true : false;
 
 		g_skinInterface.AddSkinOverride(actor, *it->second, isFemale);
 		g_actorUpdateManager.PushUpdate(actor);
@@ -438,7 +431,7 @@ void SkinInterface::Revert()
 			TESNPC * npc = (TESNPC*)LookupFormByID(skin.first);
 			TESObjectARMO * skinArmor = skin.second != 0 ? (TESObjectARMO*)LookupFormByID(skin.second) : nullptr;
 			if(npc) {
-				npc->skinForm.skin = skinArmor;
+				npc->formSkin = skinArmor;
 			}
 		}
 		m_skinBackup.m_data.clear();
@@ -449,8 +442,8 @@ void SkinInterface::Revert()
 		{
 			TESNPC * npc = (TESNPC*)LookupFormByID(face.first);
 			BGSTextureSet * faceTexture = face.second != 0 ? (BGSTextureSet*)LookupFormByID(face.second) : nullptr;
-			if(npc && npc->headData) {
-				npc->headData->faceTextures = faceTexture;
+			if(npc && npc->headRelatedData) {
+				npc->headRelatedData->faceDetails = faceTexture;
 			}
 		}
 		m_faceBackup[g].m_data.clear();
@@ -465,7 +458,7 @@ void SkinInterface::LoadSkinMods()
 	// Load templates
 	ForEachMod([&](const ModInfo * modInfo)
 	{
-		std::string templatesPath = overlayPath + std::string(modInfo->name) + "\\skin.json";
+		std::string templatesPath = overlayPath + std::string(modInfo->filename) + "\\skin.json";
 		LoadSkinTemplates(templatesPath.c_str());
 	});
 
@@ -490,7 +483,7 @@ void SkinInterface::LoadSkinMods()
 bool SkinInterface::LoadSkinTemplates(const std::string & filePath)
 {
 	BSResourceNiBinaryStream binaryStream(filePath.c_str());
-	if(!binaryStream.IsValid())
+	if(!binaryStream)
 		return false;
 
 	std::string strFile;

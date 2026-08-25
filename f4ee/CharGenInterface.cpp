@@ -1,33 +1,23 @@
 #include "CharGenInterface.h"
-#include "f4se/GameAPI.h"
-#include "f4se/GameCustomization.h"
-#include "f4se/GameReferences.h"
-#include "f4se/GameObjects.h"
-#include "f4se/GameRTTI.h"
-#include "f4se/GameData.h"
-#include "f4se_common/Utilities.h"
-#include "f4se/GameStreams.h"
-
-#include "f4se/NiRTTI.h"
-#include "f4se/BSGeometry.h"
-#include "f4se/NiMaterials.h"
-#include "f4se/NiProperties.h"
-
-#include "common/IFileStream.h"
 
 #include <fstream>
 #include <memory>
 
-#include <ppl.h>
 #include <atomic>
 #include <chrono>
 #include <regex>
+
+#include <algorithm>
+#include <execution>
 
 #include "CharGenTint.h"
 #include "BodyMorphInterface.h"
 #include "OverlayInterface.h"
 #include "SkinInterface.h"
 #include "Utilities.h"
+
+using namespace REX::W32;
+#include "common/IFileStream.h"
 
 extern bool g_bExportRace;
 extern std::string g_strExportRace;
@@ -42,13 +32,17 @@ extern bool g_bIgnoreTintPalettes;
 extern bool g_bIgnoreTintTextures;
 extern bool g_bIgnoreTintMasks;
 
-extern const std::string & GetRuntimeDirectory(void);
+extern const std::string & F4EEGetRuntimeDirectory(void);
 
 static const char * HairGradientPalette = "actors\\character\\hair\\haircolor_lgrad_d.dds";
 
-DWORD CharGenInterface::SavePreset(const std::string & filePath)
+#define ERROR_SUCCESS         0
+#define ERROR_INVALID_TOKEN   315
+#define ERROR_INVALID_ADDRESS 487
+
+std::uint32_t CharGenInterface::SavePreset(const std::string & filePath)
 {
-	DataHandler * dataHandler = (*g_dataHandler);
+	TESDataHandler * dataHandler = TESDataHandler::GetSingleton();
 	if(!dataHandler)
 		return ERROR_INVALID_ADDRESS;
 
@@ -56,7 +50,7 @@ DWORD CharGenInterface::SavePreset(const std::string & filePath)
 	if(!actor)
 		return ERROR_INVALID_ADDRESS;
 
-	TESNPC * npc = DYNAMIC_CAST(actor->baseForm, TESForm, TESNPC);
+	TESNPC * npc = DYNAMIC_CAST(actor->data.objectReference, TESForm, TESNPC);
 	if(!npc)
 		return ERROR_INVALID_ADDRESS;
 
@@ -64,7 +58,7 @@ DWORD CharGenInterface::SavePreset(const std::string & filePath)
 	if(!race)
 		return ERROR_INVALID_ADDRESS;
 
-	UInt8 gender = CALL_MEMBER_FN(npc, GetSex)();
+	SEX gender = CALL_MEMBER_FN(npc, GetSex)();
 
 	IFileStream		currentFile;
 	IFileStream::MakeAllDirs(filePath.c_str());
@@ -102,7 +96,7 @@ DWORD CharGenInterface::SavePreset(const std::string & filePath)
 	}
 	root["HeadParts"] = headPartInfo;
 
-	auto headData = npc->headData;
+	auto headData = npc->headRelatedData;
 	if(headData) {
 		auto hairColor = headData->hairColor;
 		if(hairColor) {
@@ -110,51 +104,49 @@ DWORD CharGenInterface::SavePreset(const std::string & filePath)
 		}
 	}
 
-	root["Weight"][0] = npc->weightThin;
-	root["Weight"][1] = npc->weightMuscular;
-	root["Weight"][2] = npc->weightLarge;
+	root["Weight"][0] = npc->morphWeight.x;
+	root["Weight"][1] = npc->morphWeight.y;
+	root["Weight"][2] = npc->morphWeight.z;
 
-	Json::Value morphSetData;
-	Json::Value morphRegionData;
+	Json::Value morphSliderValues;
+	Json::Value facialBoneRegionSliderValues;
 
-	if(npc->morphSetValue)
+	if(npc->morphRegionSliderValues)
 	{
-		for(int i = 0; i < npc->morphSetValue->count; i++)
+		for(int i = 0; i < (int)npc->morphRegionSliderValues->size(); i++)
 		{
-			root["Morphs"]["Values"][i] = (*npc->morphSetValue)[i];
+			root["Morphs"]["Values"][i] = (*npc->morphRegionSliderValues)[i];
 		}
 	}
 
-	char keyName[MAX_PATH];
-	if(npc->morphSetData)
+	char keyName[256];
+	if(npc->morphSliderValues)
 	{
-		npc->morphSetData->ForEach([&npc, &keyName, &morphSetData](TESNPC::MorphSetData * region)
+		for (const BSTTuple<std::uint32_t, float>& region : *npc->morphSliderValues)
 		{
-			sprintf_s(keyName, "%X", region->key);
-			morphSetData[keyName] = region->value;
-			return true;
-		});
+			sprintf_s(keyName, "%X", region.first);
+			morphSliderValues[keyName] = region.second;
+		}
 
-		root["Morphs"]["Presets"] = morphSetData;
+		root["Morphs"]["Presets"] = morphSliderValues;
 	}
 		
 
-	if(npc->morphRegionData)
+	if(npc->facialBoneRegionSliderValues)
 	{
-		npc->morphRegionData->ForEach([&npc, &keyName, &morphRegionData](TESNPC::FaceMorphRegion * region)
+		for (const BSTTuple<std::uint32_t, BGSCharacterMorph::Transform>& region : *npc->facialBoneRegionSliderValues)
 		{
 			Json::Value values;
 			for(UInt32 f = 0; f < 8; f++)
 			{
-				values.append(region->value[f]);
+				values.append(reinterpret_cast<const float *>(&region.second)[f]);
 			}
 
-			sprintf_s(keyName, "%X", region->index);
-			morphRegionData[keyName] = values;
-			return true;
-		});
+			sprintf_s(keyName, "%X", region.first);
+			facialBoneRegionSliderValues[keyName] = values;
+		}
 
-		root["Morphs"]["Regions"] = morphRegionData;
+		root["Morphs"]["Regions"] = facialBoneRegionSliderValues;
 	}
 
 	float intensity = npc->GetFacialBoneMorphIntensity();
@@ -164,34 +156,31 @@ DWORD CharGenInterface::SavePreset(const std::string & filePath)
 
 	Json::Value tintData;
 
-	tArray<BGSCharacterTint::Entry*> * tints = npc->tints;
+	BGSCharacterTint::Entries * tints = npc->tintingData;
 
 	PlayerCharacter * pPC = DYNAMIC_CAST(actor, Actor, PlayerCharacter);
-	if(pPC && pPC->tints)
-		tints = pPC->tints;
+	if(pPC && pPC->tintingData)
+		tints = pPC->tintingData;
 
 	if(tints)
 	{
-		for(UInt32 i = 0; i < tints->count; i++)
+		for(BGSCharacterTint::Entry * entry : tints->entriesA)
 		{
-			BGSCharacterTint::Entry * entry;
-			tints->GetNthItem(i, entry);
-
-			if(entry->percent == 0)
+			if(entry->tingingValue == 0)
 				continue;
 
-			sprintf_s(keyName, "%X", entry->tintIndex);
+			sprintf_s(keyName, "%X", entry->idLink);
 
-			UInt32 type = entry->GetType();
+			BGSCharacterTint::EntryType type = entry->GetType();
 			tintData[keyName]["Type"] = (Json::Int)type;
-			tintData[keyName]["Percent"] = (Json::Int)entry->percent;
+			tintData[keyName]["Percent"] = (Json::Int)entry->tingingValue;
 
 			switch(type)
 			{
-			case BGSCharacterTint::Entry::kTypePalette:
+			case BGSCharacterTint::EntryType::kPalette:
 				BGSCharacterTint::PaletteEntry * palette = static_cast<BGSCharacterTint::PaletteEntry*>(entry);
-				tintData[keyName]["Color"] = (Json::Int)palette->color.bgra;
-				tintData[keyName]["ColorID"] = palette->colorID;
+				tintData[keyName]["Color"] = palette->tintingColor;
+				tintData[keyName]["ColorID"] = palette->swatchID;
 				break;
 			}
 
@@ -202,7 +191,7 @@ DWORD CharGenInterface::SavePreset(const std::string & filePath)
 	}
 
 	Json::Value morphData;
-	auto morphMap = g_bodyMorphInterface.GetMorphMap(actor, gender == 1 ? true : false);
+	auto morphMap = g_bodyMorphInterface.GetMorphMap(actor, gender == SEX::kFemale ? true : false);
 	if(morphMap) {
 		for(auto & morph : *morphMap) {
 			auto it = morph.second->find(0);
@@ -215,7 +204,7 @@ DWORD CharGenInterface::SavePreset(const std::string & filePath)
 	}
 
 	Json::Value overlayData;
-	if(g_overlayInterface.ForEachOverlay(actor, gender == 1 ? true : false, [&](SInt32 priority, const OverlayInterface::OverlayDataPtr & pOverlay)
+	if(g_overlayInterface.ForEachOverlay(actor, gender == SEX::kFemale ? true : false, [&](SInt32 priority, const OverlayInterface::OverlayDataPtr & pOverlay)
 	{
 		Json::Value overlay;
 		overlay["template"] = pOverlay->templateName ? pOverlay->templateName->c_str() : "";
@@ -251,12 +240,12 @@ DWORD CharGenInterface::SavePreset(const std::string & filePath)
 		
 
 	std::string data = writer.write(root);
-	currentFile.WriteBuf(data.c_str(), data.length());
+	currentFile.WriteBuf(data.c_str(), (UInt32)data.length());
 	currentFile.Close();
 	return ERROR_SUCCESS;
 }
 
-DWORD CharGenInterface::LoadPreset(const std::string & filePath)
+std::uint32_t CharGenInterface::LoadPreset(const std::string & filePath)
 {
 	Json::Reader reader;
 	Json::Value root;
@@ -270,7 +259,7 @@ DWORD CharGenInterface::LoadPreset(const std::string & filePath)
 		return ERROR_INVALID_TOKEN;
 	}
 
-	DataHandler * dataHandler = (*g_dataHandler);
+	TESDataHandler * dataHandler = TESDataHandler::GetSingleton();
 	if(!dataHandler)
 		return ERROR_INVALID_ADDRESS;
 
@@ -278,7 +267,7 @@ DWORD CharGenInterface::LoadPreset(const std::string & filePath)
 	if(!actor)
 		return ERROR_INVALID_ADDRESS;
 
-	TESNPC * npc = DYNAMIC_CAST(actor->baseForm, TESForm, TESNPC);
+	TESNPC * npc = DYNAMIC_CAST(actor->data.objectReference, TESForm, TESNPC);
 	if(!npc)
 		return ERROR_INVALID_ADDRESS;
 
@@ -286,12 +275,12 @@ DWORD CharGenInterface::LoadPreset(const std::string & filePath)
 	if(!race)
 		return ERROR_INVALID_ADDRESS;
 
-	UInt8 gender = CALL_MEMBER_FN(npc, GetSex)();
+	SEX gender = CALL_MEMBER_FN(npc, GetSex)();
 
-	UInt8 loadedGender = 0;
+	SEX loadedGender = SEX::kMale;
 	try
 	{
-		loadedGender = root["Gender"].asUInt();
+		loadedGender = (SEX)root["Gender"].asUInt();
 	}
 	catch( ... )
 	{
@@ -303,19 +292,19 @@ DWORD CharGenInterface::LoadPreset(const std::string & filePath)
 		return ERROR_INVALID_TOKEN;
 	}
 
-	bool isFemale = gender == 1 ? true : false;
+	bool isFemale = gender == SEX::kFemale ? true : false;
 
 	// Wipe the HeadPart list and replace it with the default race list
-	auto chargenData = race->chargenData[gender];
+	auto chargenData = race->faceRelatedData[isFemale];
 	if (chargenData) {
 		BGSHeadPart ** headParts = npc->headParts;
-		tArray<BGSHeadPart*> * headPartList = race->chargenData[gender]->headParts;
+		BSTArray<BGSHeadPart*> * headPartList = race->faceRelatedData[isFemale]->headParts;
 		if (headParts && headPartList) {
 			Heap_Free(headParts);
-			npc->numHeadParts = headPartList->count;
+			npc->numHeadParts = headPartList->size();
 			headParts = (BGSHeadPart **)Heap_Allocate(npc->numHeadParts * sizeof(BGSHeadPart*));
-			for (UInt32 i = 0; i < headPartList->count; i++)
-				headPartList->GetNthItem(i, headParts[i]);
+			for (UInt32 i = 0; i < headPartList->size(); i++)
+				headParts[i] = (*headPartList)[i];
 			npc->headParts = headParts;
 		}
 	}
@@ -333,7 +322,7 @@ DWORD CharGenInterface::LoadPreset(const std::string & filePath)
 			if(!newPart) // Not a head part type
 				continue;
 
-			npc->ChangeHeadPart(newPart, false, false);
+			npc->ChangeHeadPart(newPart);
 		}
 	}
 	catch(const std::exception& e)
@@ -347,9 +336,9 @@ DWORD CharGenInterface::LoadPreset(const std::string & filePath)
 		if(form) {
 			BGSColorForm * colorForm = DYNAMIC_CAST(form, TESForm, BGSColorForm);
 			if(colorForm) {
-				if(!npc->headData)
-					npc->headData = new TESNPC::HeadData();
-				npc->headData->hairColor = colorForm;
+				if(!npc->headRelatedData)
+					npc->headRelatedData = new TESNPC::HeadRelatedData();
+				npc->headRelatedData->hairColor = colorForm;
 			}
 		}
 	}
@@ -367,15 +356,15 @@ DWORD CharGenInterface::LoadPreset(const std::string & filePath)
 			fValues.push_back(value.asFloat());
 		}
 
-		if(!npc->morphSetValue && fValues.size() > 0)
-			npc->morphSetValue = new tArray<float>();
-		if(npc->morphSetValue) {
-			npc->morphSetValue->Clear();
-			npc->morphSetValue->Allocate(5);
-			size_t elements = (std::min<size_t>)(5, fValues.size());
-			for(size_t i = 0; i < elements; i++)
+		if(!npc->morphRegionSliderValues && fValues.size() > 0)
+			npc->morphRegionSliderValues = new BSTArray<float>();
+		if(npc->morphRegionSliderValues) {
+			npc->morphRegionSliderValues->clear();
+			npc->morphRegionSliderValues->resize(5);
+			UInt32 elements = (std::min<UInt32>)(5, (UInt32)fValues.size());
+			for(UInt32 i = 0; i < elements; i++)
 			{
-				(*npc->morphSetValue)[i] = fValues.at(i);
+				(*npc->morphRegionSliderValues)[i] = fValues.at(i);
 			}
 		}
 	}
@@ -390,26 +379,26 @@ DWORD CharGenInterface::LoadPreset(const std::string & filePath)
 		auto members = regions.getMemberNames();
 
 		bool bClear = true;
-		if(!npc->morphRegionData && members.size() > 0) {
-			npc->morphRegionData = new tHashSet<TESNPC::FaceMorphRegion, UInt32>();
+		if(!npc->facialBoneRegionSliderValues && members.size() > 0) {
+			npc->facialBoneRegionSliderValues = new BSTHashMap<std::uint32_t, BGSCharacterMorph::Transform>();
 			bClear = false;
 		}
-		if(npc->morphRegionData) {
+		if(npc->facialBoneRegionSliderValues) {
 			if(bClear)
-				npc->morphRegionData->Clear();
+				npc->facialBoneRegionSliderValues->clear();
 			
 			for(auto key : members)
 			{
-				UInt32 keyValue = 0;
+				std::uint32_t keyValue = 0;
 				sscanf_s(key.c_str(), "%X", &keyValue);
 
-				TESNPC::FaceMorphRegion regionData;
-				regionData.index = keyValue;
+				RE::BSTTuple<std::uint32_t, BGSCharacterMorph::Transform> regionData;
+				regionData.first = keyValue;
 				for(int i = 0; i < 8; i++)
 				{
-					regionData.value[i] = regions[key][i].asFloat();
+					reinterpret_cast<float *>(&regionData.second)[i] = regions[key][i].asFloat();
 				}
-				npc->morphRegionData->Add(&regionData);
+				npc->facialBoneRegionSliderValues->insert(regionData);
 			}
 		}
 	}
@@ -424,23 +413,23 @@ DWORD CharGenInterface::LoadPreset(const std::string & filePath)
 		auto members = presets.getMemberNames();
 
 		bool bClear = true;
-		if(!npc->morphSetData && members.size() > 0) {
-			npc->morphSetData = new tHashSet<TESNPC::MorphSetData, UInt32>();
+		if(!npc->morphSliderValues && members.size() > 0) {
+			npc->morphSliderValues = new BSTHashMap<std::uint32_t, float>();
 			bClear = false;
 		}
-		if(npc->morphSetData) {
+		if(npc->morphSliderValues) {
 			if(bClear)
-				npc->morphSetData->Clear();
+				npc->morphSliderValues->clear();
 
 			for(auto key : members)
 			{
 				UInt32 keyValue = 0;
 				sscanf_s(key.c_str(), "%X", &keyValue);
 
-				TESNPC::MorphSetData morphSet;
-				morphSet.key = keyValue;
-				morphSet.value = presets[key].asFloat();
-				npc->morphSetData->Add(&morphSet);
+				BSTTuple<std::uint32_t, float> morphSet;
+				morphSet.first = keyValue;
+				morphSet.second = presets[key].asFloat();
+				npc->morphSliderValues->insert(morphSet);
 			}
 		}
 	}
@@ -449,7 +438,7 @@ DWORD CharGenInterface::LoadPreset(const std::string & filePath)
 		_ERROR(e.what());
 	}
 
-	if(actor != (*g_player)) // Don't apply morph intensity to the player.
+	if(actor != PlayerCharacter::GetPlayer()) // Don't apply morph intensity to the player.
 	{
 		try
 		{
@@ -465,9 +454,9 @@ DWORD CharGenInterface::LoadPreset(const std::string & filePath)
 	
 	try
 	{
-		npc->weightThin = root["Weight"][0].asFloat();
-		npc->weightMuscular = root["Weight"][1].asFloat();
-		npc->weightLarge = root["Weight"][2].asFloat();
+		npc->morphWeight.x = root["Weight"][0].asFloat();
+		npc->morphWeight.y = root["Weight"][1].asFloat();
+		npc->morphWeight.z = root["Weight"][2].asFloat();
 	}
 	catch(const std::exception& e)
 	{
@@ -479,13 +468,13 @@ DWORD CharGenInterface::LoadPreset(const std::string & filePath)
 		Json::Value tints = root["Tints"];
 		auto members = tints.getMemberNames();
 		bool bClear = true;
-		if(!npc->tints && members.size() > 0) {
-			npc->tints = new tArray<BGSCharacterTint::Entry*>();
+		if(!npc->tintingData && members.size() > 0) {
+			npc->tintingData = new BGSCharacterTint::Entries();
 			bClear = false;
 		}
-		if(npc->tints) {
+		if(npc->tintingData) {
 			if(bClear)
-				ClearCharacterTints(npc->tints);
+				BGSCharacterTint::Entry::ClearCharacterTints(npc->tintingData);
 
 			std::map<UInt32, BGSCharacterTint::Entry*> tintMap;
 			for(auto key : members)
@@ -493,30 +482,30 @@ DWORD CharGenInterface::LoadPreset(const std::string & filePath)
 				UInt32 keyValue = 0;
 				sscanf_s(key.c_str(), "%X", &keyValue);
 
-				UInt32 type = tints[key]["Type"].asInt();
-				if((type == BGSCharacterTint::Entry::kTypePalette && g_bIgnoreTintPalettes) ||
-					(type == BGSCharacterTint::Entry::kTypeTexture && g_bIgnoreTintTextures) ||
-					(type == BGSCharacterTint::Entry::kTypeMask && g_bIgnoreTintMasks))
+				BGSCharacterTint::EntryType type = (BGSCharacterTint::EntryType)tints[key]["Type"].asInt();
+				if((type == BGSCharacterTint::EntryType::kPalette && g_bIgnoreTintPalettes) ||
+					(type == BGSCharacterTint::EntryType::kTexture && g_bIgnoreTintTextures) ||
+					(type == BGSCharacterTint::EntryType::kMask && g_bIgnoreTintMasks))
 					continue;
 
-				BGSCharacterTint::Template::Entry * templateEntry = chargenData->GetTemplateByIndex(keyValue); // Validate the tint index
+				BGSCharacterTint::Template::Entry * templateEntry = chargenData->tintingTemplate->GetTemplateByUniqueID((std::uint16_t)keyValue); // Validate the tint index
 				if(templateEntry) {
-					BGSCharacterTint::Entry* newEntry = CreateCharacterTintEntry((keyValue << 16) | type);
+					BGSCharacterTint::Entry* newEntry = BGSCharacterTint::Entry::CreateCharacterTintEntry((keyValue << 16) | (UInt32)type);
 					if(newEntry) {
-						if(newEntry->GetType() == BGSCharacterTint::Entry::kTypePalette) {
+						if(newEntry->GetType() == BGSCharacterTint::EntryType::kPalette) {
 							BGSCharacterTint::PaletteEntry * palette = static_cast<BGSCharacterTint::PaletteEntry*>(newEntry);
 							BGSCharacterTint::Template::Palette * paletteTemplate = static_cast<BGSCharacterTint::Template::Palette*>(templateEntry);
-							palette->color.bgra = tints[key]["Color"].asUInt();
+							palette->tintingColor = tints[key]["Color"].asUInt();
 							SInt16 colorID = tints[key]["ColorID"].asInt();
-							auto colorData = paletteTemplate->GetColorDataByID(colorID); // Validate the color index
+							auto colorData = paletteTemplate->GetColorDataBySwatchID(colorID); // Validate the color index
 							if(colorData)
-								palette->colorID = colorID;
-							else if(paletteTemplate->colors.count)
-								palette->colorID = paletteTemplate->colors[0].colorID;
+								palette->swatchID = colorID;
+							else if(!paletteTemplate->colorValues.empty())
+								palette->swatchID = paletteTemplate->colorValues[0].swatchID;
 							else
-								palette->colorID = 0;
+								palette->swatchID = 0;
 						}
-						newEntry->percent = tints[key]["Percent"].asInt();
+						newEntry->tingingValue = tints[key]["Percent"].asInt();
 
 						tintMap.emplace(keyValue, newEntry);
 					}
@@ -534,7 +523,7 @@ DWORD CharGenInterface::LoadPreset(const std::string & filePath)
 
 					auto it = tintMap.find(keyValue);
 					if(it != tintMap.end()) {
-						npc->tints->Push(it->second);
+						npc->tintingData->entriesA.push_back(it->second);
 						tintMap.erase(it);
 					}
 				}
@@ -543,10 +532,10 @@ DWORD CharGenInterface::LoadPreset(const std::string & filePath)
 
 			// We either have remaining tints not part of the ordering, or we didn't have an ordering at all
 			for(auto & tintEntry : tintMap)
-				npc->tints->Push(tintEntry.second);
+				npc->tintingData->entriesA.push_back(tintEntry.second);
 
-			if(actor == (*g_player)) {
-				CopyCharacterTints((*g_player)->tints, npc->tints);
+			if(actor == PlayerCharacter::GetPlayer()) {
+				BGSCharacterTint::Entry::CopyCharacterTints(PlayerCharacter::GetPlayer()->tintingData, npc->tintingData);
 			}
 		}
 	}
@@ -610,7 +599,7 @@ DWORD CharGenInterface::LoadPreset(const std::string & filePath)
 					scaleUV.y = overlay["scaleUV"][1].asFloat();
 				}
 
-				g_overlayInterface.AddOverlay(actor, gender == 1 ? true : false, priority, templateName, color, offsetUV, scaleUV);
+				g_overlayInterface.AddOverlay(actor, gender == SEX::kFemale ? true : false, priority, templateName, color, offsetUV, scaleUV);
 			}
 			catch(const std::exception& e)
 			{
@@ -623,13 +612,13 @@ DWORD CharGenInterface::LoadPreset(const std::string & filePath)
 	g_skinInterface.RemoveSkinOverride(actor);
 	if(root.isMember("Skin"))
 	{
-		g_skinInterface.AddSkinOverride(actor, root["Skin"].asString(), gender == 1 ? true : false);
+		g_skinInterface.AddSkinOverride(actor, root["Skin"].asString(), gender == SEX::kFemale ? true : false);
 		g_skinInterface.ApplyOverride(actor, npc, true);
 	}
 	
 
-	npc->MarkChanged(0x800); // Save FaceData
-	npc->MarkChanged(0x4000); // Save weights
+	npc->AddChange(0x800); // Save FaceData
+	npc->AddChange(0x4000); // Save weights
 
 	return ERROR_SUCCESS;
 }
@@ -639,7 +628,7 @@ void CharGenInterface::LoadHairColorMods()
 	// Load all hair color mods
 	ForEachMod([&](const ModInfo * modInfo)
 	{
-		std::string templatesPath = std::string("F4SE\\Plugins\\F4EE\\LUTs\\") + std::string(modInfo->name) + "\\haircolors.json";
+		std::string templatesPath = std::string("F4SE\\Plugins\\F4EE\\LUTs\\") + std::string(modInfo->filename) + "\\haircolors.json";
 		LoadHairColorData(templatesPath, modInfo);
 	});
 }
@@ -649,13 +638,13 @@ void CharGenInterface::LoadTintTemplateMods()
 	// Load all categories first
 	ForEachMod([&](const ModInfo * modInfo)
 	{
-		std::string templatesPath = std::string("F4SE\\Plugins\\F4EE\\Tints\\") + std::string(modInfo->name) + "\\categories.json";
+		std::string templatesPath = std::string("F4SE\\Plugins\\F4EE\\Tints\\") + std::string(modInfo->filename) + "\\categories.json";
 		LoadTintCategories(templatesPath);
 	});
 
 	ForEachMod([&](const ModInfo * modInfo)
 	{
-		std::string templatesPath = std::string("F4SE\\Plugins\\F4EE\\Tints\\") + std::string(modInfo->name) + "\\templates.json";
+		std::string templatesPath = std::string("F4SE\\Plugins\\F4EE\\Tints\\") + std::string(modInfo->filename) + "\\templates.json";
 		LoadTintTemplates(templatesPath);
 	});
 
@@ -665,9 +654,9 @@ void CharGenInterface::LoadTintTemplateMods()
 		if(race)
 		{
 			std::string exportPath = "Data\\F4SE\\Plugins\\F4EE\\Exported\\Tints";
-			std::string categories = GetRuntimeDirectory() + exportPath + std::string("\\categories.json");
+			std::string categories = F4EEGetRuntimeDirectory() + exportPath + std::string("\\categories.json");
 			SaveTintCategories(race, categories);
-			std::string templatesPath = GetRuntimeDirectory() + exportPath + std::string("\\templates.json");
+			std::string templatesPath = F4EEGetRuntimeDirectory() + exportPath + std::string("\\templates.json");
 			SaveTintTemplates(race, templatesPath);
 		}
 	}
@@ -676,7 +665,7 @@ void CharGenInterface::LoadTintTemplateMods()
 bool CharGenInterface::LoadTintCategories(const std::string & filePath)
 {
 	BSResourceNiBinaryStream binaryStream(filePath.c_str());
-	if(!binaryStream.IsValid())
+	if(!binaryStream)
 		return false;
 
 	std::string strFile;
@@ -744,7 +733,7 @@ bool CharGenInterface::LoadTintCategories(const std::string & filePath)
 bool CharGenInterface::LoadTintTemplates(const std::string & filePath)
 {
 	BSResourceNiBinaryStream binaryStream(filePath.c_str());
-	if(!binaryStream.IsValid())
+	if(!binaryStream)
 		return false;
 
 	std::string strFile;
@@ -789,7 +778,7 @@ bool CharGenInterface::LoadTintTemplates(const std::string & filePath)
 
 					if(_strnicmp(type.c_str(), "Mask", 4) == 0)
 					{
-						std::shared_ptr<CharGenTintMask> pMask = std::make_shared<CharGenTintMask>(identifier);
+						std::shared_ptr<CharGenTintMask> pMask = std::make_shared<CharGenTintMask>((UInt16)identifier);
 						if(pMask->Parse(entry)) {
 							pMask->Apply(race, gender);
 							loadedTemplates++;
@@ -797,7 +786,7 @@ bool CharGenInterface::LoadTintTemplates(const std::string & filePath)
 					}
 					else if(_strnicmp(type.c_str(), "Palette", 7) == 0)
 					{
-						std::shared_ptr<CharGenTintPalette> pPalette = std::make_shared<CharGenTintPalette>(identifier);
+						std::shared_ptr<CharGenTintPalette> pPalette = std::make_shared<CharGenTintPalette>((UInt16)identifier);
 						if(pPalette->Parse(entry)) {
 							pPalette->Apply(race, gender);
 							loadedTemplates++;
@@ -805,7 +794,7 @@ bool CharGenInterface::LoadTintTemplates(const std::string & filePath)
 					}
 					else if(_strnicmp(type.c_str(), "TextureSet", 10) == 0)
 					{
-						std::shared_ptr<CharGenTintTextureSet> pTextureSet = std::make_shared<CharGenTintTextureSet>(identifier);
+						std::shared_ptr<CharGenTintTextureSet> pTextureSet = std::make_shared<CharGenTintTextureSet>((UInt16)identifier);
 						if(pTextureSet->Parse(entry)) {
 							pTextureSet->Apply(race, gender);
 							loadedTemplates++;
@@ -839,40 +828,34 @@ bool CharGenInterface::SaveTintCategories(const TESRace * race, const std::strin
 	Json::Value root;
 
 	Json::Value rootEntry;
-	rootEntry["Race"] = race->editorId.c_str();
+	rootEntry["Race"] = race->formEditorID.c_str();
 
 	// Find the last index first by going over all looking for the max
 	UInt32 lastIndex = 0;
-	CharGenTintObject::ForEachGender(race, 2, [&](tArray<CharacterCreation::TintData *>* tints, UInt8 genderId)
+	CharGenTintObject::ForEachGender(race, 2, [&](BGSCharacterTint::Template::Groups * tints, UInt8 genderId)
 	{
-		for(UInt32 i = 0; i < tints->count; i++)
+		for(BGSCharacterTint::Template::Group * category : tints->groups)
 		{
-			CharacterCreation::TintData * category;
-			tints->GetNthItem(i, category);
-
-			if(category->type > lastIndex)
-				lastIndex = category->type;
+			if(category->chargenIndex > lastIndex)
+				lastIndex = category->chargenIndex;
 		}
 	});
 
-	CharGenTintObject::ForEachGender(race, 2, [&](tArray<CharacterCreation::TintData *>* tints, UInt8 genderId)
+	CharGenTintObject::ForEachGender(race, 2, [&](BGSCharacterTint::Template::Groups * tints, UInt8 genderId)
 	{
-		for(UInt32 i = 0; i < tints->count; i++)
+		for(BGSCharacterTint::Template::Group * category : tints->groups)
 		{
-			CharacterCreation::TintData * category;
-			tints->GetNthItem(i, category);
-
 			// Correct broken categories
-			if(category->type == 0 && category->category == "SkinTints" && category->category != "FaceRegions" && category->category != "Brows") {
+			if(category->chargenIndex == 0 && category->name == BSFixedString("SkinTints") && category->name != BSFixedString("FaceRegions") && category->name != BSFixedString("Brows")) {
 				lastIndex++;
-				category->type = lastIndex;
+				category->chargenIndex = lastIndex;
 			}
 
 			Json::Value jcategory;
-			jcategory["Id"] = (Json::UInt)category->type;
+			jcategory["Id"] = (Json::UInt)category->chargenIndex;
 			jcategory["Type"] = "Category";
 			jcategory["Gender"] = genderId;
-			jcategory["Name"] = category->category.c_str();
+			jcategory["Name"] = category->name.c_str();
 
 			rootEntry["Entries"].append(jcategory);
 		}
@@ -881,7 +864,7 @@ bool CharGenInterface::SaveTintCategories(const TESRace * race, const std::strin
 	root.append(rootEntry);
 
 	std::string data = writer.write(root);
-	currentFile.WriteBuf(data.c_str(), data.length());
+	currentFile.WriteBuf(data.c_str(), (UInt32)data.length());
 	currentFile.Close();
 	return true;
 }
@@ -899,52 +882,46 @@ bool CharGenInterface::SaveTintTemplates(const TESRace * race, const std::string
 	Json::Value root;
 
 	Json::Value rootEntry;
-	rootEntry["Race"] = race->editorId.data->Get<char>();
+	rootEntry["Race"] = race->formEditorID.c_str();
 
-	CharGenTintObject::ForEachGender(race, 2, [&](tArray<CharacterCreation::TintData *>* tints, UInt8 genderId)
+	CharGenTintObject::ForEachGender(race, 2, [&](BGSCharacterTint::Template::Groups * tints, UInt8 genderId)
 	{
-		for(UInt32 i = 0; i < tints->count; i++)
+		for(BGSCharacterTint::Template::Group * category : tints->groups)
 		{
-			CharacterCreation::TintData * category;
-			tints->GetNthItem(i, category);
-
-			for(UInt32 k = 0; k < category->entry.count; k++)
+			for(BGSCharacterTint::Template::Entry* entry : category->entries)
 			{
-				BGSCharacterTint::Template::Entry* entry;
-				category->entry.GetNthItem(k, entry);
+				BGSCharacterTint::Template::Mask* mask = (BGSCharacterTint::Template::Mask*)Runtime_DynamicCast(entry, RTTI::BGSCharacterTint__Template__Entry, RTTI::BGSCharacterTint__Template__Mask);
+				BGSCharacterTint::Template::Palette* palette = (BGSCharacterTint::Template::Palette*)Runtime_DynamicCast(entry, RTTI::BGSCharacterTint__Template__Entry, RTTI::BGSCharacterTint__Template__Palette);
+				BGSCharacterTint::Template::TextureSet* textureSet = (BGSCharacterTint::Template::TextureSet*)Runtime_DynamicCast(entry, RTTI::BGSCharacterTint__Template__Entry, RTTI::BGSCharacterTint__Template__TextureSet);
 
-				BGSCharacterTint::Template::Mask* mask = (BGSCharacterTint::Template::Mask*)Runtime_DynamicCast(entry, RTTI_BGSCharacterTint__Template__Entry, RTTI_BGSCharacterTint__Template__Mask);
-				BGSCharacterTint::Template::Palette* palette = (BGSCharacterTint::Template::Palette*)Runtime_DynamicCast(entry, RTTI_BGSCharacterTint__Template__Entry, RTTI_BGSCharacterTint__Template__Palette);
-				BGSCharacterTint::Template::TextureSet* textureSet = (BGSCharacterTint::Template::TextureSet*)Runtime_DynamicCast(entry, RTTI_BGSCharacterTint__Template__Entry, RTTI_BGSCharacterTint__Template__TextureSet);
-
-				if(entry->templateIndex < g_uExportIdMin || entry->templateIndex > g_uExportIdMax)
+				if(entry->uniqueID < g_uExportIdMin || entry->uniqueID > g_uExportIdMax)
 					continue;
 
 				if(mask)
 				{
 					Json::Value jentry;
-					jentry["Id"] = (Json::UInt)entry->templateIndex;
+					jentry["Id"] = (Json::UInt)entry->uniqueID;
 					jentry["Type"] = "Mask";
 					jentry["Gender"] = genderId;
-					jentry["Slot"] =  CharGenTintObject::WriteSlot(mask->slot);
+					jentry["Slot"] =  CharGenTintObject::WriteSlot(*mask->slot);
 					CharGenTintObject::WriteFlags(mask->flags, jentry["Flags"]);
 					jentry["Name"] = mask->name.c_str();
 
-					if(category->type == 0 || jentry["Slot"].asString().compare("Brows") == 0)
+					if(category->chargenIndex == 0 || jentry["Slot"].asString().compare("Brows") == 0)
 					{
-						jentry["FixedCategory"] = category->category.c_str();
+						jentry["FixedCategory"] = category->name.c_str();
 					}
 					else
 					{
-						jentry["Category"] = (Json::UInt)category->type;
+						jentry["Category"] = (Json::UInt)category->chargenIndex;
 					}
 					
 
-					std::string texture = mask->texture.c_str();
+					std::string texture = mask->maskTextureName.c_str();
 					if(!texture.empty())
 						jentry["Texture"] = texture;
 
-					if(mask->blendOp != BGSCharacterTint::Template::Entry::kBlendOpDefault)
+					if(mask->blendOp != BGSCharacterTint::BlendOp::kDefault)
 						jentry["BlendOp"] = CharGenTintObject::WriteBlendOp(mask->blendOp);
 
 					rootEntry["Entries"].append(jentry);
@@ -952,32 +929,29 @@ bool CharGenInterface::SaveTintTemplates(const TESRace * race, const std::string
 				else if(palette)
 				{
 					Json::Value jentry;
-					jentry["Id"] = (Json::UInt)entry->templateIndex;
+					jentry["Id"] = (Json::UInt)entry->uniqueID;
 					jentry["Type"] = "Palette";
 					jentry["Gender"] = genderId;
-					jentry["Slot"] =  CharGenTintObject::WriteSlot(palette->slot);
+					jentry["Slot"] =  CharGenTintObject::WriteSlot(*palette->slot);
 					CharGenTintObject::WriteFlags(palette->flags, jentry["Flags"]);
 					jentry["Name"] = palette->name.c_str();
-					if(category->type == 0)
+					if(category->chargenIndex == 0)
 					{
-						jentry["FixedCategory"] = category->category.c_str();
+						jentry["FixedCategory"] = category->name.c_str();
 					}
 					else
 					{
-						jentry["Category"] = (Json::UInt)category->type;
+						jentry["Category"] = (Json::UInt)category->chargenIndex;
 					}
-					jentry["Texture"] = palette->texture.c_str();
+					jentry["Texture"] = palette->maskTextureName.c_str();
 					Json::Value colors;
-					for(UInt32 j = 0; j < palette->colors.count; j++)
+					for(BGSCharacterTint::Template::Palette::ColorValue colorData : palette->colorValues)
 					{
-						BGSCharacterTint::Template::Palette::ColorData colorData;
-						palette->colors.GetNthItem(j, colorData);
-
 						Json::Value color;
-						color["Id"] = (Json::UInt)colorData.colorID;
-						color["Form"] = GetFormIdentifier(colorData.colorForm);
-						color["Alpha"] = colorData.alpha;
-						if(colorData.blendOp != BGSCharacterTint::Template::Entry::kBlendOpDefault)
+						color["Id"] = (Json::UInt)colorData.swatchID;
+						color["Form"] = GetFormIdentifier(colorData.color);
+						color["Alpha"] = colorData.value;
+						if(colorData.blendOp != BGSCharacterTint::BlendOp::kDefault)
 							color["BlendOp"] = CharGenTintObject::WriteBlendOp(colorData.blendOp);
 						colors.append(color);
 					}
@@ -987,19 +961,19 @@ bool CharGenInterface::SaveTintTemplates(const TESRace * race, const std::string
 				else if(textureSet)
 				{
 					Json::Value jentry;
-					jentry["Id"] = (Json::UInt)entry->templateIndex;
+					jentry["Id"] = (Json::UInt)entry->uniqueID;
 					jentry["Type"] = "TextureSet";
 					jentry["Gender"] = genderId;
-					jentry["Slot"] =  CharGenTintObject::WriteSlot(textureSet->slot);
+					jentry["Slot"] =  CharGenTintObject::WriteSlot(*textureSet->slot);
 					CharGenTintObject::WriteFlags(textureSet->flags, jentry["Flags"]);
 					jentry["Name"] = textureSet->name.c_str();
-					if(category->type == 0)
+					if(category->chargenIndex == 0)
 					{
-						jentry["FixedCategory"] = category->category.c_str();
+						jentry["FixedCategory"] = category->name.c_str();
 					}
 					else
 					{
-						jentry["Category"] = (Json::UInt)category->type;
+						jentry["Category"] = (Json::UInt)category->chargenIndex;
 					}
 
 					std::string diffuse = textureSet->diffuse.c_str();
@@ -1013,7 +987,7 @@ bool CharGenInterface::SaveTintTemplates(const TESRace * race, const std::string
 					if(!specular.empty())
 						jentry["Specular"] = specular;
 
-					if(textureSet->blendOp != BGSCharacterTint::Template::Entry::kBlendOpDefault)
+					if(textureSet->blendOp != BGSCharacterTint::BlendOp::kDefault)
 						jentry["BlendOp"] = CharGenTintObject::WriteBlendOp(textureSet->blendOp);
 
 					if(textureSet->defaultValue != 0.0f)
@@ -1028,21 +1002,21 @@ bool CharGenInterface::SaveTintTemplates(const TESRace * race, const std::string
 	root.append(rootEntry);
 
 	std::string data = writer.write(root);
-	currentFile.WriteBuf(data.c_str(), data.length());
+	currentFile.WriteBuf(data.c_str(), (UInt32)data.length());
 	currentFile.Close();
 	return true;
 }
 
 Actor * CharGenInterface::GetCurrentActor()
 {
-	if(!g_characterCreation)
+	if(!BGSChargenUtils::GetSingleton())
 		return nullptr;
 
-	CharacterCreation * characterCreation = g_characterCreation[*g_characterIndex];
+	BGSChargenUtils * characterCreation = BGSChargenUtils::GetSingleton();
 	if(!characterCreation)
 		return nullptr;
 
-	return characterCreation->actor;
+	return characterCreation->targetActor;
 }
 
 
@@ -1052,13 +1026,12 @@ void CharGenInterface::UnlockHeadParts()
 	std::chrono::time_point<std::chrono::system_clock> start, end;
 
 	start = std::chrono::system_clock::now();
-	concurrency::parallel_for(UInt32(0), (*g_dataHandler)->arrHDPT.count, [&](const UInt32 & i)
+	BSTArray<TESForm *>& forms = TESDataHandler::GetSingleton()->formArrays[std::to_underlying(ENUM_FORM_ID::kHDPT)];
+	std::for_each(std::execution::par, forms.begin(), forms.end(), [&](TESForm * form)
 	{
-		BGSHeadPart * hdpt;
-		(*g_dataHandler)->arrHDPT.GetNthItem(i, hdpt);
-
-		if(hdpt->conditions) {
-			hdpt->conditions = nullptr;
+		BGSHeadPart * hdpt = (BGSHeadPart *)form;
+		if(hdpt->chargenConditions) {
+			hdpt->chargenConditions.head = nullptr;
 			total++;
 		}
 	});
@@ -1073,23 +1046,19 @@ void CharGenInterface::UnlockTints()
 	std::chrono::time_point<std::chrono::system_clock> start, end;
 
 	start = std::chrono::system_clock::now();
-	concurrency::parallel_for(UInt32(0), (*g_dataHandler)->arrRACE.count, [&](const UInt32 & i)
+	BSTArray<TESForm *>& forms = TESDataHandler::GetSingleton()->formArrays[std::to_underlying(ENUM_FORM_ID::kRACE)];
+	std::for_each(std::execution::par, forms.begin(), forms.end(), [&](TESForm * form)
 	{
-		TESRace * race;
-		(*g_dataHandler)->arrRACE.GetNthItem(i, race);
-
+		TESRace * race = (TESRace *)form;
 		for(UInt32 i = 0; i <= 1; i++) {
-			auto chargenData = race->chargenData[i];
+			auto chargenData = race->faceRelatedData[i];
 			if(chargenData) {
-				auto tintData = chargenData->tintData;
+				auto tintData = chargenData->tintingTemplate;
 				if(tintData) {
-					for(UInt32 j = 0; j < tintData->count; j++) {
-						auto tintCategory = tintData->entries[j];
-						for(UInt32 k = 0; k < tintCategory->entry.count; k++) {
-							auto tintEntry = tintCategory->entry[k];
-
-							if(tintEntry->conditions) {
-								tintEntry->conditions = nullptr;
+					for(auto tintCategory : tintData->groups) {
+						for(auto tintEntry : tintCategory->entries) {
+							if(tintEntry->chargenConditions) {
+								tintEntry->chargenConditions.head = nullptr;
 								total++;
 							}
 						}
@@ -1105,16 +1074,16 @@ void CharGenInterface::UnlockTints()
 
 void CharGenInterface::ProcessHairColor(NiAVObject * node, BGSColorForm * colorForm, BSLightingShaderMaterialBase * shaderMaterial)
 {
-	VisitObjects(node, [&](NiAVObject* object)
+	VisitObjects(node, [&](NiPointer<NiAVObject> object)
 	{
-		BSTriShape * trishape = object->GetAsBSTriShape();
+		BSTriShape * trishape = object->IsTriShape();
 		if(trishape) {
-			BSLightingShaderProperty * lightingShader = ni_cast(trishape->shaderProperty, BSLightingShaderProperty);
-			if(lightingShader && lightingShader->flags & BSLightingShaderProperty::kShaderFlags_GrayscaleToPalette) {
-				BSLightingShaderMaterialBase * material = static_cast<BSLightingShaderMaterialBase *>(lightingShader->shaderMaterial);
-				if(material && material->spLookupTexture) {
+			BSLightingShaderProperty * lightingShader = netimmerse_cast<BSLightingShaderProperty *, NiProperty>(trishape->properties[1].get());
+			if(lightingShader) { // FIXME: We should check the GrayscaleToPalette flag here
+				BSLightingShaderMaterialBase * material = static_cast<BSLightingShaderMaterialBase *>(lightingShader->material);
+				if(material && material->lookupTexture) {
 
-					std::string fullPath = material->spLookupTexture->name.c_str();
+					std::string fullPath = material->lookupTexture->name.c_str();
 					std::transform(fullPath.begin(), fullPath.end(), fullPath.begin(), ::tolower);
 
 					fullPath = std::regex_replace(fullPath, std::regex("/+|\\\\+"), "\\"); // Replace multiple slashes or forward slashes with one backslash
@@ -1127,15 +1096,15 @@ void CharGenInterface::ProcessHairColor(NiAVObject * node, BGSColorForm * colorF
 					bool bUsingCustomLUT = IsLUTUsed(fullPath.c_str());
 					bool bEligibleCustomLUT = fullPath.compare(HairGradientPalette) == 0;
 
-					char destBuff[MAX_PATH];
+					char destBuff[256];
 					F4EEFixedString str;
 					const char * pNewPalettePath = nullptr;
 
 					// We don't want the custom LUT anymore
 					if(bUsingCustomLUT && !bNeedsCustomLUT)
 					{
-						strcpy_s(destBuff, MAX_PATH, "DATA\\TEXTURES\\");
-						strcat_s(destBuff, MAX_PATH, HairGradientPalette);
+						strcpy_s(destBuff, 256, "DATA\\TEXTURES\\");
+						strcat_s(destBuff, 256, HairGradientPalette);
 						pNewPalettePath = destBuff;
 					}
 
@@ -1144,8 +1113,8 @@ void CharGenInterface::ProcessHairColor(NiAVObject * node, BGSColorForm * colorF
 					{
 						if(GetLUTFromColor(colorForm, str))
 						{
-							strcpy_s(destBuff, MAX_PATH, "DATA\\TEXTURES\\");
-							strcat_s(destBuff, MAX_PATH, str.c_str());
+							strcpy_s(destBuff, 256, "DATA\\TEXTURES\\");
+							strcat_s(destBuff, 256, str.c_str());
 							pNewPalettePath = destBuff;
 						}
 					}
@@ -1153,20 +1122,20 @@ void CharGenInterface::ProcessHairColor(NiAVObject * node, BGSColorForm * colorF
 					// Create a new TXST with the new palette path in it
 					if(pNewPalettePath)
 					{
-						BSShaderTextureSet * textureSet = CreateBSShaderTextureSet();
-						BSShaderTextureSet * otherSet = (BSShaderTextureSet*)material->spTextureSet.m_pObject;
+						BSShaderTextureSet * textureSet = BSShaderTextureSet::CreateObject();
+						BSShaderTextureSet * otherSet = (BSShaderTextureSet*)material->textureSet.get();
 						for(int i = 0; i < 10; i++)
 						{
-							const char * path = otherSet->textures[i].c_str();
+							const char * path = otherSet->textureNames[i].c_str();
 							if(path && path[0] != 0)
 							{
-								textureSet->SetTextureFilename(i, otherSet->textures[i].c_str());
+								textureSet->SetTextureFilename((BSShaderProperty::TextureTypeEnum)i, otherSet->textureNames[i].c_str());
 							}
 						}
 
-						//textureSet->Copy((BSShaderTextureSet*)material->spTextureSet.m_pObject);
-						textureSet->SetTextureFilename(3, pNewPalettePath);
-						material->spTextureSet = textureSet;
+						//textureSet->Copy((BSShaderTextureSet*)material->textureSet.m_pObject);
+						textureSet->SetTextureFilename(BSShaderProperty::TextureTypeEnum::kHeight, pNewPalettePath);
+						material->textureSet = textureSet;
 						material->ClearTextures();
 						CALL_MEMBER_FN(lightingShader, LoadTextureSet)(0);
 					}
@@ -1180,7 +1149,7 @@ void CharGenInterface::ProcessHairColor(NiAVObject * node, BGSColorForm * colorF
 
 const char * CharGenInterface::ProcessEyebrowPath(TESNPC * npc)
 {
-	auto hairTexturePath = npc->race.race->hairColorLUT.str.c_str();
+	auto hairTexturePath = npc->formRace->hairColorLookupTexture.textureName.c_str();
 
 	BGSColorForm * colorForm = npc->GetHairColor();
 	if(colorForm && (colorForm->flags & 0x8000) == 0x8000) {
@@ -1211,7 +1180,7 @@ const char * CharGenInterface::ProcessEyebrowPath(TESNPC * npc)
 bool CharGenInterface::LoadHairColorData(const std::string & filePath, const ModInfo * modInfo)
 {
 	BSResourceNiBinaryStream binaryStream(filePath.c_str());
-	if(binaryStream.IsValid())
+	if(binaryStream)
 	{
 		std::string strFile;
 		BSReadAll(&binaryStream, &strFile);
@@ -1300,12 +1269,12 @@ bool CharGenInterface::LoadHairColorData(const std::string & filePath, const Mod
 								if((i == 0 && !(gender & 0x01)) || (i == 1 && !(gender & 0x02)))
 									continue;
 
-								auto charGenData = race->chargenData[i];
+								auto charGenData = race->faceRelatedData[i];
 								if(!charGenData)
 									continue;
 
-								if(charGenData->colors)
-									charGenData->colors->Push(colorForm);
+								if(charGenData->availableHairColors)
+									charGenData->availableHairColors->push_back(colorForm);
 
 								auto paletteStr = F4EEFixedString(palettePath.c_str());
 								m_LUTMap.emplace(std::make_pair(colorForm, paletteStr));
@@ -1330,11 +1299,10 @@ bool CharGenInterface::LoadHairColorData(const std::string & filePath, const Mod
 			BGSListForm * orderedList = DYNAMIC_CAST(form, TESForm, BGSListForm);
 			if(orderedList) {
 				TESForm * colorForm = nullptr;
-				int i = 0;
-				for(i = 0; i < orderedList->forms.count; i++)
+				auto it = orderedList->arrayOfForms.begin();
+				for(; it != orderedList->arrayOfForms.end(); it++)
 				{
-					TESForm * entry;
-					orderedList->forms.GetNthItem(i, entry);
+					TESForm * entry = *it;
 					BGSColorForm * colorEntry = DYNAMIC_CAST(entry, TESForm, BGSColorForm);
 					if(colorEntry && !colorForm) {
 						colorForm = colorEntry;
@@ -1346,7 +1314,7 @@ bool CharGenInterface::LoadHairColorData(const std::string & filePath, const Mod
 
 				for(auto & colorForm : colorForms)
 				{
-					orderedList->forms.Insert(i, colorForm);
+					orderedList->arrayOfForms.insert(it, colorForm);
 				}
 			}
 		}

@@ -5,16 +5,6 @@
 #include <memory>
 #include <functional>
 
-#include "f4se/GameThreads.h"
-
-struct F4SESerializationInterface;
-
-class Actor;
-class TESNPC;
-class TESObjectARMO;
-class BGSTextureSet;
-class BGSHeadPart;
-
 class SkinTemplate
 {
 public:
@@ -44,7 +34,7 @@ public:
 };
 typedef std::shared_ptr<SkinTemplate> SkinTemplatePtr;
 
-class F4EESkinUpdate : public ITaskDelegate
+class F4EESkinUpdate : public F4SE::ITaskDelegate
 {
 public:
 	F4EESkinUpdate(TESForm * form, bool doFace);
@@ -65,8 +55,8 @@ public:
 		kSerializationVersion = kVersion1,
 	};
 
-	virtual void Save(const F4SESerializationInterface * intfc, UInt32 kVersion);
-	virtual bool Load(const F4SESerializationInterface * intfc, UInt32 kVersion, const std::unordered_map<UInt32, StringTableItem> & stringTable);
+	virtual void Save(const F4SE::SerializationInterface * intfc, UInt32 kVersion);
+	virtual bool Load(const F4SE::SerializationInterface * intfc, UInt32 kVersion, const std::unordered_map<UInt32, StringTableItem> & stringTable);
 	virtual void Revert();
 
 	virtual void LoadSkinMods();
@@ -81,9 +71,9 @@ public:
 
 	TESObjectARMO * GetBackupSkin(TESNPC * npc, bool & exists);
 	BGSTextureSet * GetBackupFace(Actor * actor, TESNPC * npc, bool isFemale, bool & exists);
-	BGSHeadPart * GetBackupHeadPart(Actor * actor, TESNPC * npc, bool isFemale, UInt32 partType);
+	BGSHeadPart * GetBackupHeadPart(Actor * actor, TESNPC * npc, bool isFemale, BGSHeadPart::HeadPartType partType);
 
-	UInt32 ApplyOverride(Actor* actor, TESNPC* npc, bool doFace);
+	RESET_3D_FLAGS ApplyOverride(Actor* actor, TESNPC* npc, bool doFace);
 	void RevertOverride(Actor* actor, TESNPC* npc);
 
 
